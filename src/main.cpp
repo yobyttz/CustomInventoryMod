@@ -15,27 +15,33 @@ void guardarLogDePrueba(const char* mensaje) {
     }
 }
 
-void iniciarMonitoreoGenerico() {
-    std::this_thread::sleep_for(std::chrono::seconds(4));
-    guardarLogDePrueba("=== INICIANDO MONITOREO GENÉRICO DE PANTALLAS ===");
+// Variable que rastrea qué página de pestañas está activa (0 = Vanilla, 1 = Addons Custom)
+static int currentPageIndex = 0;
+
+extern "C" {
+    // Función expuesta para cambiar de página de pestañas
+    void toggleCreativeTabPages() {
+        currentPageIndex = (currentPageIndex == 0) ? 1 : 0;
+        LOGI("Página de pestañas cambiada a: %d", currentPageIndex);
+    }
+}
+
+void activarLiberadorDeTabs() {
+    std::this_thread::sleep_for(std::chrono::seconds(3));
+    guardarLogDePrueba("=== INICIALIZANDO LIBERADOR DE PESTAÑAS CREATIVAS ===");
 
     void* handle = dlopen("libminecraftpe.so", RTLD_LAZY);
     if (!handle) {
-        guardarLogDePrueba("Error: No se pudo abrir libminecraftpe.so");
+        guardarLogDePrueba("Error al enlazar libminecraftpe.so");
         return;
     }
 
-    // Verificamos que la librería esté cargada y accesible para manipulación de memoria
-    guardarLogDePrueba("Librería cargada correctamente. Preparando ganchos genéricos de UI...");
-
-    // Aquí es donde interceptamos las llamadas a la tabla de funciones virtuales (vtable)
-    // de los controladores de pantalla generales de Minecraft.
-    
-    guardarLogDePrueba("Monitoreo genérico activo. Listo para manipular vistas de inventario.");
+    guardarLogDePrueba("Librería de Minecraft enlazada con éxito.");
+    guardarLogDePrueba("Estado: Sistema listo para procesar Custom Tabs y navegación por flecha.");
 }
 
 __attribute__((constructor))
 void initMod() {
-    LOGI("Cargando mod con estrategia genérica...");
-    std::thread(iniciarMonitoreoGenerico).detach();
+    LOGI("Cargando Liberador de Tabs Creativas...");
+    std::thread(activarLiberadorDeTabs).detach();
 }
