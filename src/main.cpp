@@ -15,33 +15,30 @@ void guardarLogDePrueba(const char* mensaje) {
     }
 }
 
-// Variable que rastrea qué página de pestañas está activa (0 = Vanilla, 1 = Addons Custom)
+// Control de página activa: 0 = Pestañas Default Vanilla, 1 = Pestañas Custom Add-ons
 static int currentPageIndex = 0;
 
 extern "C" {
-    // Función expuesta para cambiar de página de pestañas
+    // Función de cambio de página invocada por la interacción de UI
     void toggleCreativeTabPages() {
         currentPageIndex = (currentPageIndex == 0) ? 1 : 0;
-        LOGI("Página de pestañas cambiada a: %d", currentPageIndex);
+        
+        if (currentPageIndex == 1) {
+            guardarLogDePrueba("-> ESTADO CAMBIADO: Mostrando Pestañas Custom (Add-ons)");
+        } else {
+            guardarLogDePrueba("-> ESTADO CAMBIADO: Mostrando Pestañas Predeterminadas (Vanilla)");
+        }
     }
 }
 
-void activarLiberadorDeTabs() {
-    std::this_thread::sleep_for(std::chrono::seconds(3));
-    guardarLogDePrueba("=== INICIALIZANDO LIBERADOR DE PESTAÑAS CREATIVAS ===");
-
-    void* handle = dlopen("libminecraftpe.so", RTLD_LAZY);
-    if (!handle) {
-        guardarLogDePrueba("Error al enlazar libminecraftpe.so");
-        return;
-    }
-
-    guardarLogDePrueba("Librería de Minecraft enlazada con éxito.");
-    guardarLogDePrueba("Estado: Sistema listo para procesar Custom Tabs y navegación por flecha.");
+void escucharEventosUI() {
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    guardarLogDePrueba("=== MOD LISTO PARA INTERCEPTAR BOTÓN DE PESTAÑAS ===");
+    guardarLogDePrueba("Escuchando evento: button.custom_tab_page_toggle");
 }
 
 __attribute__((constructor))
 void initMod() {
-    LOGI("Cargando Liberador de Tabs Creativas...");
-    std::thread(activarLiberadorDeTabs).detach();
+    LOGI("Inicializando módulo de Custom Tabs...");
+    std::thread(escucharEventosUI).detach();
 }
