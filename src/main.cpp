@@ -1,35 +1,40 @@
 #include <fstream>
 #include <string>
-#include <iostream>
 
-// Ruta del archivo de prueba (puedes cambiarla a una ruta accesible en Android)
-const std::string LOG_FILE_PATH = "/sdcard/custom_tabs_debug.txt";
+// Ruta del log que confirmaste que funciona
+const char* LOG_PATH = "/sdcard/custom_tabs_debug.txt";
 
-// 1. Función que se ejecuta cuando el mod C++ se carga al iniciar
-void onModLoaded() {
-    std::ofstream logFile(LOG_FILE_PATH, std::ios::out | std::ios::trunc);
+// Función para escribir en el archivo
+void writeLog(const std::string& message) {
+    std::ofstream logFile(LOG_PATH, std::ios::out | std::ios::app);
     if (logFile.is_open()) {
-        logFile << "[MOD INIT] El mod C++ se ha cargado correctamente.\n";
+        logFile << message << "\n";
         logFile.close();
     }
 }
 
-// 2. Función que escribe en el archivo cuando se detecta el clic de un botón
-void logButtonPress(const std::string& buttonName) {
-    std::ofstream logFile(LOG_FILE_PATH, std::ios::out | std::ios::app);
+// ===================================================================
+// 1. ESTA FUNCIÓN SE EJECUTA AUTOMÁTICAMENTE AL CARGAR EL .SO
+// ===================================================================
+__attribute__((constructor))
+void initMod() {
+    // Sobrescribimos el archivo para saber que el mod arrancó con éxito
+    std::ofstream logFile(LOG_PATH, std::ios::out | std::ios::trunc);
     if (logFile.is_open()) {
-        logFile << "[BUTTON PRESS] Evento detectado: " << buttonName << "\n";
+        logFile << "[MOD INIT] El mod C++ se cargo e inicializo correctamente.\n";
         logFile.close();
     }
 }
 
-// Hook de la pantalla donde LeviLauncher intercepta las acciones de la UI
-void handleScreenCommand(const std::string& commandName) {
-    // Si el comando recibido es uno de nuestros botones del JSON UI:
+// ===================================================================
+// 2. FUNCIÓN DE HOOK (Captura el clic de los botones del JSON UI)
+// ===================================================================
+// Aquí interceptas los eventos de ScreenController
+void handleUICommand(const std::string& commandName) {
     if (commandName == "button.custom_tab_0") {
-        logButtonPress("Pestaña 1 (button.custom_tab_0)");
+        writeLog("[CLIC DETECTADO] Se presiono el boton: Pestaña 1 (button.custom_tab_0)");
     } 
     else if (commandName == "button.custom_tab_1") {
-        logButtonPress("Pestaña 2 (button.custom_tab_1)");
+        writeLog("[CLIC DETECTADO] Se presiono el boton: Pestaña 2 (button.custom_tab_1)");
     }
 }
