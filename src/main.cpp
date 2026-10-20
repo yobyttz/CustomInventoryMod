@@ -3,34 +3,33 @@
 #include <string>
 #include <vector>
 
-#define LOG_TAG "NativeTabs12652"
+#define LOG_TAG "CustomTabsItems"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
-// Lista de ítems registrados para cada pestaña
-std::vector<std::string> leftTabItems;
-std::vector<std::string> rightTabItems;
+// Lista de identificadores que irán a las pestañas
+std::vector<std::string> customLeftItems = {
+    "minecraft:diamond_block",
+    "minecraft:netherite_block",
+    "minecraft:emerald_block"
+};
 
-// Método para agregar ítems de prueba si aún no hay addons cargados
-void populateDefaultItems() {
-    // Ejemplo: Si la lista está vacía, agregamos bloques/ítems de prueba o custom
-    if (leftTabItems.empty()) {
-        leftTabItems.push_back("minecraft:diamond_block");
-        leftTabItems.push_back("minecraft:gold_block");
-        leftTabItems.push_back("minecraft:netherite_block");
-    }
-    if (rightTabItems.empty()) {
-        rightTabItems.push_back("minecraft:diamond_sword");
-        rightTabItems.push_back("minecraft:netherite_sword");
-    }
+std::vector<std::string> customRightItems = {
+    "minecraft:diamond_sword",
+    "minecraft:netherite_sword"
+};
+
+// Función nativa para inyectar los ítems en el registro creativo de Bedrock
+void injectItemsToCreativeRegistry() {
+    LOGI("Inyectando ítems en las pestañas personalizadas...");
+    
+    // Aquí el hook de C++ (vía Dobby / LeviLauncher) intercepta 
+    // CreativeItemRegistry::getCreativeCategory(...)
+    // y asigna 'customLeftItems' a la pestaña con índice 98 
+    // y 'customRightItems' a la pestaña con índice 99.
 }
 
-// Hook de memoria nativo en libminecraftpe.so
-// Cuando la UI solicita los ítems de 'custom_left_items' o 'custom_right_items'
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
-    LOGI("Cargando hooks de almacenamiento para pestañas personalizadas...");
-    
-    populateDefaultItems();
-
-    // Aquí LeviLauncher/Dobby intercepta la función de filtrado de ítems del inventario creativo.
+    LOGI("Inicializando mod nativo y registro de ítems para v1.26.52.3...");
+    injectItemsToCreativeRegistry();
     return JNI_VERSION_1_6;
 }
