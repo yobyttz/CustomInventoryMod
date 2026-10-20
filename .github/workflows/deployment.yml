@@ -23,4 +23,3 @@ jobs:
         with:
           name: CustomInventoryMod-arm64-v8a
           path: build/libCustomInventoryMod.so
-
