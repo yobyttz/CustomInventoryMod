@@ -1,40 +1,49 @@
-#include <fstream>
+#include <jni.h>
+#include <android/log.h>
 #include <string>
+#include <vector>
 
-// Ruta del log que confirmaste que funciona
-const char* LOG_PATH = "/sdcard/custom_tabs_debug.txt";
+#define LOG_TAG "NativeTabs12652"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
-// Función para escribir en el archivo
-void writeLog(const std::string& message) {
-    std::ofstream logFile(LOG_PATH, std::ios::out | std::ios::app);
-    if (logFile.is_open()) {
-        logFile << message << "\n";
-        logFile.close();
+struct TabStorage {
+    std::vector<std::string> leftItems;
+    std::vector<std::string> rightItems;
+
+    static TabStorage& getInstance() {
+        static TabStorage instance;
+        return instance;
     }
+
+    void registerCustomItem(const std::string& itemIdentifier) {
+        // Ignorar vanilla items
+        if (itemIdentifier.find("minecraft:") != 0) {
+            // Ejemplo de filtrado directo en C++
+            if (itemIdentifier.find("weapon") != std::string::npos || 
+                itemIdentifier.find("tool") != std::string::npos ||
+                itemIdentifier.find("sword") != std::string::npos) {
+                
+                rightItems.push_back(itemIdentifier);
+                LOGI("[C++] Item vinculado a custom_right_items: %s", itemIdentifier.c_str());
+            } else {
+                leftItems.push_back(itemIdentifier);
+                LOGI("[C++] Item vinculado a custom_left_items: %s", itemIdentifier.c_str());
+            }
+        }
+    }
+};
+
+// Hook nativo para capturar el registro de ítems de addons
+void onBedrockItemInit(const std::string& itemId) {
+    TabStorage::getInstance().registerCustomItem(itemId);
 }
 
-// ===================================================================
-// 1. ESTA FUNCIÓN SE EJECUTA AUTOMÁTICAMENTE AL CARGAR EL .SO
-// ===================================================================
-__attribute__((constructor))
-void initMod() {
-    // Sobrescribimos el archivo para saber que el mod arrancó con éxito
-    std::ofstream logFile(LOG_PATH, std::ios::out | std::ios::trunc);
-    if (logFile.is_open()) {
-        logFile << "[MOD INIT] El mod C++ se cargo e inicializo correctamente.\n";
-        logFile.close();
-    }
-}
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
+    LOGI("=========================================================");
+    LOGI(" Custom Tabs Native Mod (1.26.52.3) ");
+    LOGI(" Integrado con @crafting.top_tab & tab_navigation_panel ");
+    LOGI("=========================================================");
 
-// ===================================================================
-// 2. FUNCIÓN DE HOOK (Captura el clic de los botones del JSON UI)
-// ===================================================================
-// Aquí interceptas los eventos de ScreenController
-void handleUICommand(const std::string& commandName) {
-    if (commandName == "button.custom_tab_0") {
-        writeLog("[CLIC DETECTADO] Se presiono el boton: Pestaña 1 (button.custom_tab_0)");
-    } 
-    else if (commandName == "button.custom_tab_1") {
-        writeLog("[CLIC DETECTADO] Se presiono el boton: Pestaña 2 (button.custom_tab_1)");
-    }
+    // Aquí LeviLauncher aplica los hooks de memoria
+    return JNI_VERSION_1_6;
 }
