@@ -3,33 +3,52 @@
 #include <string>
 #include <vector>
 
-#define LOG_TAG "CustomTabsItems"
+#define LOG_TAG "NativeTabsMod"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-// Lista de identificadores que irán a las pestañas
-std::vector<std::string> customLeftItems = {
-    "minecraft:diamond_block",
-    "minecraft:netherite_block",
-    "minecraft:emerald_block"
+// Estructura para gestionar las listas de ítems de las pestañas personalizadas
+struct CustomTabsManager {
+    std::vector<std::string> leftTabItems;
+    std::vector<std::string> rightTabItems;
+
+    static CustomTabsManager& getInstance() {
+        static CustomTabsManager instance;
+        return instance;
+    }
+
+    void initializeDefaultItems() {
+        // Agregamos ítems de prueba para verificar que el panel gris los renderice
+        leftTabItems.push_back("minecraft:diamond_block");
+        leftTabItems.push_back("minecraft:gold_block");
+        leftTabItems.push_back("minecraft:emerald_block");
+
+        rightTabItems.push_back("minecraft:diamond_sword");
+        rightTabItems.push_back("minecraft:netherite_sword");
+
+        LOGI("[C++] Ítems por defecto cargados en las colecciones custom.");
+    }
 };
 
-std::vector<std::string> customRightItems = {
-    "minecraft:diamond_sword",
-    "minecraft:netherite_sword"
-};
-
-// Función nativa para inyectar los ítems en el registro creativo de Bedrock
-void injectItemsToCreativeRegistry() {
-    LOGI("Inyectando ítems en las pestañas personalizadas...");
+// Función para interceptar y enganchar el registro creativo (CreativeItemRegistry)
+void hookCreativeRegistry() {
+    LOGI("[C++] Configurando ganchos para CreativeItemRegistry en libminecraftpe.so...");
     
-    // Aquí el hook de C++ (vía Dobby / LeviLauncher) intercepta 
-    // CreativeItemRegistry::getCreativeCategory(...)
-    // y asigna 'customLeftItems' a la pestaña con índice 98 
-    // y 'customRightItems' a la pestaña con índice 99.
+    // Aquí es donde Dobby / CppInlineHook intercepta las funciones internas de Bedrock
+    // para enlazar los items de CustomTabsManager con los IDs de pestaña 98 y 99.
 }
 
+// Punto de entrada principal cuando LeviLauncher carga la librería .so en memoria
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
-    LOGI("Inicializando mod nativo y registro de ítems para v1.26.52.3...");
-    injectItemsToCreativeRegistry();
+    LOGI("==================================================");
+    LOGI("   Iniciando Mod Nativo de Pestañas (1.26.52.3)    ");
+    LOGI("==================================================");
+
+    // Inicializar listas de prueba
+    CustomTabsManager::getInstance().initializeDefaultItems();
+
+    // Aplicar hooks nativos
+    hookCreativeRegistry();
+
     return JNI_VERSION_1_6;
 }
