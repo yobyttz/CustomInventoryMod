@@ -1,35 +1,32 @@
 #include <string>
 #include <vector>
-#include <unordered_map>
 
-struct ScriptCustomTab {
-    std::string id;
+// Supongamos que esta estructura viene de tu puente con el Script (main.js)
+struct TabData {
     std::string title;
-    std::string iconTexture;
-    std::vector<std::string> itemIdentifiers;
+    std::vector<std::string> itemIds;
 };
 
-class ScriptTabBridge {
-private:
-    std::unordered_map<std::string, ScriptCustomTab> scriptRegisteredTabs;
+// Simulamos una lista de pestañas que el C++ guardó desde el script
+std::vector<TabData> g_LoadedTabsFromScript = {
+    { "Pestaña Magia", { "minecraft:diamond", "minecraft:emerald", "minecraft:netherite_sword" } },
+    { "Pestaña Bloques", { "minecraft:bricks", "minecraft:obsidian", "minecraft:beacon" } }
+};
 
-public:
-    // Esta función es llamada cuando el Script API de JavaScript registra una pestaña
-    void addTabFromScript(const std::string& id, const std::string& title, const std::string& icon, const std::vector<std::string>& items) {
-        scriptRegisteredTabs[id] = {id, title, icon, items};
+// Función que se ejecuta EXACTAMENTE cuando haces clic en el botón de la pestaña
+void onCustomTabClicked(int tabIndex, void* screenController) {
+    if (tabIndex >= g_LoadedTabsFromScript.size()) return;
+
+    // 1. Obtenemos los ítems que el usuario escribió en el script (main.js) para esta pestaña
+    const auto& selectedTab = g_LoadedTabsFromScript[tabIndex];
+    
+    // 2. Aquí es donde el C++ interactúa con el inventario del juego (LeviLauncher / SDK de Minecraft)
+    // Recorres la lista de IDs de ítems y los colocas en los slots visibles de la pantalla
+    for (size_t i = 0; i < selectedTab.itemIds.size(); ++i) {
+        std::string itemId = selectedTab.itemIds[i];
         
-        // Aquí puedes actualizar automáticamente tu gestor visual de pestañas que usa el JSON UI
-        // g_TabManager.registerTab(id, icon, title);
+        // Código interno del SDK para cambiar el ítem del slot 'i' en la UI:
+        // Item* item = ItemRegistry::getItem(itemId);
+        // screenController->setItemAtSlot(i, item);
     }
-
-    // Obtener los ítems que pertenecen a una pestaña específica al abrirla
-    std::vector<std::string> getItemsForTab(const std::string& id) {
-        if (scriptRegisteredTabs.find(id) != scriptRegisteredTabs.end()) {
-            return scriptRegisteredTabs[id].itemIdentifiers;
-        }
-        return {};
-    }
-};
-
-// Instancia global del puente de scripts
-ScriptTabBridge g_ScriptTabBridge;
+}
