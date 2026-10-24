@@ -9,19 +9,14 @@
 #include "subhook.h"
 
 #define TAG "CustomInventoryMod"
-
-// Ruta pública en la tarjeta o almacenamiento interno (Carpeta Download)
 const char* LOG_FILE_PATH = "/storage/emulated/0/Download/mod_debug.txt";
 
-// Función personalizada para escribir en la consola de Android Y en el archivo de Download
 void write_log(const char* fmt, ...) {
-    // 1. Mantener el log del sistema
     va_list args1;
     va_start(args1, fmt);
     __android_log_vprint(ANDROID_LOG_INFO, TAG, fmt, args1);
     va_end(args1);
 
-    // 2. Escribir en el archivo de la carpeta Download
     FILE* f = fopen(LOG_FILE_PATH, "a");
     if (f != NULL) {
         va_list args2;
@@ -47,46 +42,100 @@ void* hooked_container_controller_init(void* self) {
 struct dl_iterate_context {
     const char* name;
     uintptr_t base_addr;
+    ElfW(Addr) map_start;
+    ElfW(Addr) map_end;
 };
 
 static int dl_iterate_callback(struct dl_phdr_info *info, size_t size, void *data) {
     auto* ctx = reinterpret_cast<dl_iterate_context*>(data);
     if (info->dlpi_name && strstr(info->dlpi_name, ctx->name)) {
         ctx->base_addr = info->dlpi_addr;
+        
+        for (int i = 0; i < info->dlpi_phnum; i++) {
+            const auto* phdr = &info->dlpi_phdr[i];
+            // Buscamos tanto secciones ejecutables (.text) como de datos de solo lectura (.rodata)
+            if (phdr->p_type == PT_LOAD) {
+                if (ctx->map_start == 0) {
+                    ctx->map_start = info->dlpi_addr + phdr->p_vaddr;
+                }
+                ctx->map_end = info->dlpi_addr + phdr->p_vaddr + phdr->p_memsz;
+            }
+        }
         return 1;
     }
     return 0;
 }
 
-uintptr_t get_module_base(const char* module_name) {
-    dl_iterate_context ctx = { module_name, 0 };
-    dl_iterate_phdr(dl_iterate_callback, &ctx);
-    return ctx.base_addr;
+// 1. Buscar la cadena exacta en la memoria
+uintptr_t find_string_in_memory(uintptr_t start, uintptr_t end, const char* str) {
+    size_t len = strlen(str);
+    for (uintptr_t addr = start; addr < end - len; addr++) {
+        if (memcmp(reinterpret_cast<void*>(addr), str, len) == 0) {
+            return addr;
+        }
+    }
+    return 0;
+}
+
+// 2. Escanear referencias (punteros de 8 bytes alineados) que apunten a una dirección objetivo
+void scan_and_log_references(uintptr_t start, uintptr_t end, uintptr_t target_ptr, uintptr_t base_addr) {
+    LOGI("[*] Buscando referencias en memoria a la dirección: 0x%lx", target_ptr);
+    int found_count = 0;
+
+    // En arquitecturas de 64 bits (ARM64), los punteros están alineados a 8 bytes
+    for (uintptr_t addr = start; addr < end - 8; addr += 8) {
+        uintptr_t* ptr_val = reinterpret_cast<uintptr_t*>(addr);
+        if (*ptr_val == target_ptr) {
+            found_count++;
+            uintptr_t offset = addr - base_addr;
+            LOGI("[+] ¡Referencia #%d! RAM: 0x%lx | Offset Estático: 0x%lx", found_count, addr, offset);
+            
+            if (found_count >= 15) { // Mostrar un límite razonable para no saturar el log
+                LOGI("[*] Se alcanzó el límite de referencias mostradas.");
+                break;
+            }
+        }
+    }
+
+    if (found_count == 0) {
+        LOGI("[-] No se encontraron referencias de punteros directos a esta cadena.");
+    }
 }
 
 void init_hooks() {
-    // Crear un archivo limpio o sobrescribirlo cada vez que arranca el juego
     FILE* f = fopen(LOG_FILE_PATH, "w");
     if (f != NULL) {
         fprintf(f, "=== INICIO DEL MOD: CustomInventoryMod ===\n");
         fclose(f);
-    } else {
-        LOGE("[-] No se pudo crear el archivo de log en Download (¿Faltan permisos de almacenamiento?)");
     }
 
-    uintptr_t base_addr = 0;
-    while (base_addr == 0) {
-        base_addr = get_module_base("libminecraftpe.so");
-        if (base_addr == 0) {
+    dl_iterate_context ctx = { "libminecraftpe.so", 0, 0, 0 };
+    while (ctx.base_addr == 0) {
+        dl_iterate_phdr(dl_iterate_callback, &ctx);
+        if (ctx.base_addr == 0) {
             usleep(100000);
         }
     }
     
-    LOGI("[*] libminecraftpe.so encontrado en la base: 0x%lx", base_addr);
+    LOGI("[*] libminecraftpe.so base: 0x%lx", ctx.base_addr);
 
-    // Dirección de prueba temporal
+    // Buscar la cadena del controlador de inventario
+    const char* search_term = "ContainerScreenController";
+    uintptr_t string_addr = find_string_in_memory(ctx.map_start, ctx.map_end, search_term);
+
+    if (string_addr != 0) {
+        LOGI("[+] Cadena '%s' encontrada en RAM: 0x%lx (Offset: 0x%lx)", 
+             search_term, string_addr, string_addr - ctx.base_addr);
+        
+        // Ejecutar el escáner para ver quién apunta a esta cadena en el binario
+        scan_and_log_references(ctx.map_start, ctx.map_end, string_addr, ctx.base_addr);
+    } else {
+        LOGI("[-] No se encontró la cadena especificada.");
+    }
+
+    // Offset provisional actual (lo cambiaremos cuando veas el resultado del escáner)
     uintptr_t target_offset = 0x123456; 
-    void* target_func = reinterpret_cast<void*>(base_addr + target_offset);
+    void* target_func = reinterpret_cast<void*>(ctx.base_addr + target_offset);
 
     subhook_t hook = subhook_new(target_func, (void*)hooked_container_controller_init, SUBHOOK_64BIT_OFFSET);
     if (subhook_install(hook) < 0) {
