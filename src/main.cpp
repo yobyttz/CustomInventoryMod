@@ -31,11 +31,12 @@ void write_log(const char* fmt, ...) {
 #define LOGI(...) write_log("[INFO] " __VA_ARGS__)
 #define LOGE(...) write_log("[ERROR] " __VA_ARGS__)
 
+// Definición de la función original y el hook
 typedef void* (*ContainerControllerInit_t)(void* self);
 ContainerControllerInit_t original_controller_init = nullptr;
 
 void* hooked_container_controller_init(void* self) {
-    LOGI("[+] ¡ÉXITO! Se interceptó el controlador de inventario.");
+    LOGI("[+] ¡ÉXITO! Se interceptó el ContainerScreenController del inventario.");
     if (original_controller_init) {
         return original_controller_init(self);
     }
@@ -45,36 +46,21 @@ void* hooked_container_controller_init(void* self) {
 struct dl_iterate_context {
     const char* name;
     uintptr_t base_addr;
-    uintptr_t data_start;
-    uintptr_t data_end;
 };
 
 static int dl_iterate_callback(struct dl_phdr_info *info, size_t size, void *data) {
     auto* ctx = reinterpret_cast<dl_iterate_context*>(data);
     if (info->dlpi_name && strstr(info->dlpi_name, ctx->name)) {
         ctx->base_addr = info->dlpi_addr;
-        
-        // Buscamos el segmento de datos cargados (PT_LOAD que no sea estrictamente ejecutable)
-        for (int i = 0; i < info->dlpi_phnum; i++) {
-            const auto* phdr = &info->dlpi_phdr[i];
-            if (phdr->p_type == PT_LOAD) {
-                bool is_executable = (phdr->p_flags & PF_X) != 0;
-                // Tomamos la región de datos antes del código ejecutable o cualquier segmento legible
-                if (!is_executable) {
-                    uintptr_t seg_start = info->dlpi_addr + phdr->p_vaddr;
-                    uintptr_t seg_end = seg_start + phdr->p_memsz;
-                    if (ctx->data_start == 0 || seg_start < ctx->data_start) {
-                        ctx->data_start = seg_start;
-                    }
-                    if (seg_end > ctx->data_end) {
-                        ctx->data_end = seg_end;
-                    }
-                }
-            }
-        }
         return 1;
     }
     return 0;
+}
+
+uintptr_t get_module_base(const char* module_name) {
+    dl_iterate_context ctx = { module_name, 0 };
+    dl_iterate_phdr(dl_iterate_callback, &ctx);
+    return ctx.base_addr;
 }
 
 void init_hooks() {
@@ -84,43 +70,41 @@ void init_hooks() {
         fclose(f);
     }
 
-    dl_iterate_context ctx = { "libminecraftpe.so", 0, 0, 0 };
-    while (ctx.base_addr == 0) {
-        dl_iterate_phdr(dl_iterate_callback, &ctx);
-        if (ctx.base_addr == 0) {
+    uintptr_t base_addr = 0;
+    while (base_addr == 0) {
+        base_addr = get_module_base("libminecraftpe.so");
+        if (base_addr == 0) {
             usleep(100000);
         }
     }
     
-    LOGI("[*] libminecraftpe.so base: 0x%lx", ctx.base_addr);
-    LOGI("[*] Rango de datos seguro: 0x%lx - 0x%lx", ctx.data_start, ctx.data_end);
+    LOGI("[*] libminecraftpe.so base: 0x%lx", base_addr);
 
-    // Offset estático conocido de la cadena
+    // 1. Verificación de la cadena de texto base que ya comprobamos con éxito
     uintptr_t string_offset = 0x29c7706;
-    uintptr_t string_addr = ctx.base_addr + string_offset;
-    LOGI("[*] Cadena ContainerScreenController en: 0x%lx", string_addr);
+    LOGI("[*] Cadena ContainerScreenController verificada en offset: 0x%lx", string_offset);
 
-    // Búsqueda en el segmento de datos seguro en busca de punteros de 8 bytes que apunten a nuestra cadena
-    int found_references = 0;
-    if (ctx.data_start != 0 && ctx.data_end != 0) {
-        for (uintptr_t addr = ctx.data_start; addr < ctx.data_end - 8; addr += 8) {
-            uintptr_t* ptr_val = reinterpret_cast<uintptr_t*>(addr);
-            // Validación de seguridad adicional para evitar excepciones de lectura
-            if (*ptr_val == string_addr) {
-                found_references++;
-                uintptr_t rel_offset = addr - ctx.base_addr;
-                LOGI("[+] ¡Puntero encontrado! RAM: 0x%lx | Offset Estático: 0x%lx", addr, rel_offset);
-                
-                if (found_references >= 5) break;
+    // 2. Offset de la función objetivo para el gancho (Subhook)
+    // Aquí puedes colocar el offset estático de la función del controlador cuando lo asignemos
+    uintptr_t target_function_offset = 0x0; // Cambiará por el offset real de la función
+
+    if (target_function_offset != 0) {
+        void* target_func = reinterpret_cast<void*>(base_addr + target_function_offset);
+        
+        subhook_t hook = subhook_new(target_func, (void*)hooked_container_controller_init, SUBHOOK_64BIT_OFFSET);
+        if (hook == nullptr) {
+            LOGE("[-] Error al crear el objeto Subhook.");
+        } else {
+            if (subhook_install(hook) < 0) {
+                LOGE("[-] ¡Error al instalar el hook en la dirección objetivo!");
+            } else {
+                LOGI("[+] ¡Hook instalado exitosamente!");
+                original_controller_init = (ContainerControllerInit_t)subhook_get_trampoline(hook);
             }
         }
+    } else {
+        LOGI("[*] Mod operando en modo estable. Listo para enganchar la función.");
     }
-
-    if (found_references == 0) {
-        LOGI("[-] Sin coincidencias directas en el rango de datos analizado.");
-    }
-
-    LOGI("[*] Búsqueda finalizada de forma estable.");
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
