@@ -50,7 +50,7 @@ extern "C" {
 
 typedef struct subhook *subhook_t;
 
-#enum subhook_flags {
+enum subhook_flags {
   SUBHOOK_64BIT_OFFSET = 1
 };
 
