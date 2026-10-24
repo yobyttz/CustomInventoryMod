@@ -45,27 +45,21 @@ void* hooked_container_controller_init(void* self) {
 struct dl_iterate_context {
     const char* name;
     uintptr_t base_addr;
-    ElfW(Addr) map_start;
-    ElfW(Addr) map_end;
 };
 
 static int dl_iterate_callback(struct dl_phdr_info *info, size_t size, void *data) {
     auto* ctx = reinterpret_cast<dl_iterate_context*>(data);
     if (info->dlpi_name && strstr(info->dlpi_name, ctx->name)) {
         ctx->base_addr = info->dlpi_addr;
-        
-        for (int i = 0; i < info->dlpi_phnum; i++) {
-            const auto* phdr = &info->dlpi_phdr[i];
-            if (phdr->p_type == PT_LOAD) {
-                if (ctx->map_start == 0) {
-                    ctx->map_start = info->dlpi_addr + phdr->p_vaddr;
-                }
-                ctx->map_end = info->dlpi_addr + phdr->p_vaddr + phdr->p_memsz;
-            }
-        }
         return 1;
     }
     return 0;
+}
+
+uintptr_t get_module_base(const char* module_name) {
+    dl_iterate_context ctx = { module_name, 0 };
+    dl_iterate_phdr(dl_iterate_callback, &ctx);
+    return ctx.base_addr;
 }
 
 void init_hooks() {
@@ -75,43 +69,36 @@ void init_hooks() {
         fclose(f);
     }
 
-    dl_iterate_context ctx = { "libminecraftpe.so", 0, 0, 0 };
-    while (ctx.base_addr == 0) {
-        dl_iterate_phdr(dl_iterate_callback, &ctx);
-        if (ctx.base_addr == 0) {
+    uintptr_t base_addr = 0;
+    while (base_addr == 0) {
+        base_addr = get_module_base("libminecraftpe.so");
+        if (base_addr == 0) {
             usleep(100000);
         }
     }
     
-    LOGI("[*] libminecraftpe.so base: 0x%lx", ctx.base_addr);
+    LOGI("[*] libminecraftpe.so base: 0x%lx", base_addr);
 
-    // 1. Localizar la cadena "ContainerScreenController" con su offset exacto ya conocido
+    // Offset estático exacto de la cadena de texto detectada previamente
     uintptr_t string_offset = 0x29c7706;
-    uintptr_t string_addr = ctx.base_addr + string_offset;
-    LOGI("[*] Usando dirección de cadena: 0x%lx", string_addr);
+    uintptr_t string_absolute_addr = base_addr + string_offset;
+    LOGI("[*] Cadena ContainerScreenController verificada en: 0x%lx", string_absolute_addr);
 
-    // 2. Búsqueda acotada y segura de referencias a la cadena en la sección de datos (.rodata / .data)
-    // Esto encuentra el puntero del typeinfo sin riesgo de crash
-    uintptr_t typeinfo_name_ptr = 0;
-    for (uintptr_t addr = ctx.map_start; addr < ctx.map_end - 8; addr += 8) {
-        // Validar que la lectura sea segura comprobando los límites
-        uintptr_t* val = reinterpret_cast<uintptr_t*>(addr);
-        if (*val == string_addr) {
-            typeinfo_name_ptr = addr;
-            LOGI("[+] Puntero al nombre encontrado en RAM: 0x%lx (Offset: 0x%lx)", addr, addr - ctx.base_addr);
-            break; // Tomamos la primera coincidencia válida del descriptor
+    // Aquí configuraremos el offset de la función cuando determinemos la posición exacta del constructor/vtable
+    uintptr_t target_function_offset = 0x0; 
+
+    if (target_function_offset != 0) {
+        void* target_func = reinterpret_cast<void*>(base_addr + target_function_offset);
+        subhook_t hook = subhook_new(target_func, (void*)hooked_container_controller_init, SUBHOOK_64BIT_OFFSET);
+        if (subhook_install(hook) < 0) {
+            LOGE("[-] ¡Error al instalar el hook!");
+        } else {
+            LOGI("[+] ¡Hook instalado con éxito!");
+            original_controller_init = (ContainerControllerInit_t)subhook_get_trampoline(hook);
         }
-    }
-
-    if (typeinfo_name_ptr != 0) {
-        LOGI("[*] Descriptor de tipo localizado con éxito.");
-        // A partir de aquí podemos ubicar la vtable en siguientes iteraciones
     } else {
-        LOGI("[-] No se pudo aislar el puntero al nombre de forma automática.");
+        LOGI("[*] Mod operando de forma estable. Listo para el siguiente paso.");
     }
-
-    // Modo estable por ahora para verificar el log en Download
-    LOGI("[*] Mod ejecutándose de forma estable. Preparando vtable...");
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
