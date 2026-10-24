@@ -34,7 +34,7 @@ void write_log(const char* fmt, ...) {
 typedef void* (*ContainerControllerInit_t)(void* self);
 ContainerControllerInit_t original_controller_init = nullptr;
 
-// Hook inteligente: registrará en Download cada vez que la función sea interceptada en tiempo de ejecución
+// Hook inteligente con reporte detallado
 void* hooked_container_controller_init(void* self) {
     LOGI("[+] ¡HOOK ACTIVADO! Instancia del controlador (self): %p", self);
     
@@ -81,18 +81,17 @@ void init_hooks() {
     
     LOGI("[*] libminecraftpe.so base: 0x%lx", base_addr);
 
-    // Cadena base verificada anteriormente
+    // Referencia de la cadena base
     uintptr_t string_offset = 0x29c7706;
     LOGI("[*] Cadena ContainerScreenController verificada en offset: 0x%lx", string_offset);
 
-    // --- PRIMER CANDIDATO DE OFFSET PARA LA FUNCIÓN ---
-    // Probaremos un offset cercano dentro del rango de funciones de UI del binario.
-    // (Lo ajustaremos dinámicamente si el juego abre sin disparar el hook o si requiere otro bloque).
-    uintptr_t target_function_offset = 0x29c7700; // Candidato preliminar cerca de la zona de cadenas
+    // --- NUEVO CANDIDATO EN ZONA DE CÓDIGO EJECUTABLE (.text) ---
+    // Probaremos un desplazamiento alineado hacia el bloque de funciones de control de pantallas.
+    uintptr_t target_function_offset = 0x29c2000; // Candidato ajustado hacia la sección de código
 
     if (target_function_offset != 0) {
         void* target_func = reinterpret_cast<void*>(base_addr + target_function_offset);
-        LOGI("[*] Intentando instalar hook en dirección absoluta: 0x%lx", (uintptr_t)target_func);
+        LOGI("[*] Intentando instalar hook en dirección absoluta (.text): 0x%lx", (uintptr_t)target_func);
         
         subhook_t hook = subhook_new(target_func, (void*)hooked_container_controller_init, SUBHOOK_64BIT_OFFSET);
         if (hook == nullptr) {
@@ -101,7 +100,7 @@ void init_hooks() {
             if (subhook_install(hook) < 0) {
                 LOGE("[-] ¡Error al instalar el hook en la dirección objetivo!");
             } else {
-                LOGI("[+] ¡Hook instalado exitosamente!");
+                LOGI("[+] ¡Hook instalado exitosamente en código ejecutable!");
                 original_controller_init = (ContainerControllerInit_t)subhook_get_trampoline(hook);
             }
         }
