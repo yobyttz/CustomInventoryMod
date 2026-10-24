@@ -1,7 +1,9 @@
 #include <jni.h>
 #include <android/log.h>
 #include <dlfcn.h>
+#include <link.h>
 #include <unistd.h>
+#include <string.h>
 #include "subhook.h"
 
 #define TAG "CustomInventoryMod"
@@ -16,15 +18,25 @@ void* hooked_container_controller_init(void* self) {
     return original_controller_init(self);
 }
 
+// Estructura y callback para buscar el módulo en Android de forma segura
+struct dl_iterate_context {
+    const char* name;
+    uintptr_t base_addr;
+};
+
+static int dl_iterate_callback(struct dl_phdr_info *info, size_t size, void *data) {
+    auto* ctx = reinterpret_cast<dl_iterate_context*>(data);
+    if (info->dlpi_name && strstr(info->dlpi_name, ctx->name)) {
+        ctx->base_addr = info->dlpi_addr;
+        return 1; // Detener la iteración al encontrarlo
+    }
+    return 0;
+}
+
 uintptr_t get_module_base(const char* module_name) {
-    void* handle = dlopen(module_name, RTLD_NOW);
-    if (!handle) return 0;
-    
-    struct link_map* map = nullptr;
-    dlinfo(handle, RTLD_DI_LINKMAP, &map);
-    dlclose(handle);
-    
-    return map ? reinterpret_cast<uintptr_t>(map->l_addr) : 0;
+    dl_iterate_context ctx = { module_name, 0 };
+    dl_iterate_phdr(dl_iterate_callback, &ctx);
+    return ctx.base_addr;
 }
 
 void init_hooks() {
@@ -32,7 +44,7 @@ void init_hooks() {
     while (base_addr == 0) {
         base_addr = get_module_base("libminecraftpe.so");
         if (base_addr == 0) {
-            usleep(100000);
+            usleep(100000); // Esperar 100ms y reintentar si el juego aún no lo ha cargado
         }
     }
     
