@@ -31,12 +31,13 @@ void write_log(const char* fmt, ...) {
 #define LOGI(...) write_log("[INFO] " __VA_ARGS__)
 #define LOGE(...) write_log("[ERROR] " __VA_ARGS__)
 
-// Definición de la función original y el hook
 typedef void* (*ContainerControllerInit_t)(void* self);
 ContainerControllerInit_t original_controller_init = nullptr;
 
+// Hook inteligente: registrará en Download cada vez que la función sea interceptada en tiempo de ejecución
 void* hooked_container_controller_init(void* self) {
-    LOGI("[+] ¡ÉXITO! Se interceptó el ContainerScreenController del inventario.");
+    LOGI("[+] ¡HOOK ACTIVADO! Instancia del controlador (self): %p", self);
+    
     if (original_controller_init) {
         return original_controller_init(self);
     }
@@ -80,16 +81,18 @@ void init_hooks() {
     
     LOGI("[*] libminecraftpe.so base: 0x%lx", base_addr);
 
-    // 1. Verificación de la cadena de texto base que ya comprobamos con éxito
+    // Cadena base verificada anteriormente
     uintptr_t string_offset = 0x29c7706;
     LOGI("[*] Cadena ContainerScreenController verificada en offset: 0x%lx", string_offset);
 
-    // 2. Offset de la función objetivo para el gancho (Subhook)
-    // Aquí puedes colocar el offset estático de la función del controlador cuando lo asignemos
-    uintptr_t target_function_offset = 0x0; // Cambiará por el offset real de la función
+    // --- PRIMER CANDIDATO DE OFFSET PARA LA FUNCIÓN ---
+    // Probaremos un offset cercano dentro del rango de funciones de UI del binario.
+    // (Lo ajustaremos dinámicamente si el juego abre sin disparar el hook o si requiere otro bloque).
+    uintptr_t target_function_offset = 0x29c7700; // Candidato preliminar cerca de la zona de cadenas
 
     if (target_function_offset != 0) {
         void* target_func = reinterpret_cast<void*>(base_addr + target_function_offset);
+        LOGI("[*] Intentando instalar hook en dirección absoluta: 0x%lx", (uintptr_t)target_func);
         
         subhook_t hook = subhook_new(target_func, (void*)hooked_container_controller_init, SUBHOOK_64BIT_OFFSET);
         if (hook == nullptr) {
@@ -103,7 +106,7 @@ void init_hooks() {
             }
         }
     } else {
-        LOGI("[*] Mod operando en modo estable. Listo para enganchar la función.");
+        LOGI("[*] Mod operando en modo estable.");
     }
 }
 
