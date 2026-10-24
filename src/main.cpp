@@ -45,21 +45,33 @@ void* hooked_container_controller_init(void* self) {
 struct dl_iterate_context {
     const char* name;
     uintptr_t base_addr;
+    uintptr_t rodata_start;
+    uintptr_t rodata_end;
 };
 
+// Callback para extraer los límites exactos de los segmentos de memoria de forma segura
 static int dl_iterate_callback(struct dl_phdr_info *info, size_t size, void *data) {
     auto* ctx = reinterpret_cast<dl_iterate_context*>(data);
     if (info->dlpi_name && strstr(info->dlpi_name, ctx->name)) {
         ctx->base_addr = info->dlpi_addr;
+        
+        // Iterar sobre las cabeceras del programa ELF para encontrar la sección de datos de sólo lectura (.rodata)
+        for (int i = 0; i < info->dlpi_phnum; i++) {
+            const auto* phdr = &info->dlpi_phdr[i];
+            if (phdr->p_type == PT_LOAD) {
+                bool is_writable = (phdr->p_flags & PF_W) != 0;
+                bool is_executable = (phdr->p_flags & PF_X) != 0;
+                
+                // .rodata es legible (R) pero NO escribible (W) y NO ejecutable (X)
+                if (!is_writable && !is_executable) {
+                    ctx->rodata_start = info->dlpi_addr + phdr->p_vaddr;
+                    ctx->rodata_end = ctx->rodata_start + phdr->p_memsz;
+                }
+            }
+        }
         return 1;
     }
     return 0;
-}
-
-uintptr_t get_module_base(const char* module_name) {
-    dl_iterate_context ctx = { module_name, 0 };
-    dl_iterate_phdr(dl_iterate_callback, &ctx);
-    return ctx.base_addr;
 }
 
 void init_hooks() {
@@ -69,36 +81,40 @@ void init_hooks() {
         fclose(f);
     }
 
-    uintptr_t base_addr = 0;
-    while (base_addr == 0) {
-        base_addr = get_module_base("libminecraftpe.so");
-        if (base_addr == 0) {
+    dl_iterate_context ctx = { "libminecraftpe.so", 0, 0, 0 };
+    while (ctx.base_addr == 0 || ctx.rodata_start == 0) {
+        dl_iterate_phdr(dl_iterate_callback, &ctx);
+        if (ctx.base_addr == 0) {
             usleep(100000);
         }
     }
     
-    LOGI("[*] libminecraftpe.so base: 0x%lx", base_addr);
+    LOGI("[*] libminecraftpe.so base: 0x%lx", ctx.base_addr);
+    LOGI("[*] Sección .rodata localizada: 0x%lx - 0x%lx", ctx.rodata_start, ctx.rodata_end);
 
-    // Offset estático exacto de la cadena de texto detectada previamente
+    // Offset estático conocido de la cadena
     uintptr_t string_offset = 0x29c7706;
-    uintptr_t string_absolute_addr = base_addr + string_offset;
-    LOGI("[*] Cadena ContainerScreenController verificada en: 0x%lx", string_absolute_addr);
+    uintptr_t string_addr = ctx.base_addr + string_offset;
+    LOGI("[*] Cadena ContainerScreenController en: 0x%lx", string_addr);
 
-    // Aquí configuraremos el offset de la función cuando determinemos la posición exacta del constructor/vtable
-    uintptr_t target_function_offset = 0x0; 
-
-    if (target_function_offset != 0) {
-        void* target_func = reinterpret_cast<void*>(base_addr + target_function_offset);
-        subhook_t hook = subhook_new(target_func, (void*)hooked_container_controller_init, SUBHOOK_64BIT_OFFSET);
-        if (subhook_install(hook) < 0) {
-            LOGE("[-] ¡Error al instalar el hook!");
-        } else {
-            LOGI("[+] ¡Hook instalado con éxito!");
-            original_controller_init = (ContainerControllerInit_t)subhook_get_trampoline(hook);
+    // Escaneo seguro exclusivo dentro de la sección .rodata en busca de quién apunta a nuestra cadena
+    int found_references = 0;
+    for (uintptr_t addr = ctx.rodata_start; addr < ctx.rodata_end - 8; addr += 8) {
+        uintptr_t* ptr_val = reinterpret_cast<uintptr_t*>(addr);
+        if (*ptr_val == string_addr) {
+            found_references++;
+            uintptr_t rel_offset = addr - ctx.base_addr;
+            LOGI("[+] ¡Puntero encontrado en .rodata! RAM: 0x%lx | Offset Estático: 0x%lx", addr, rel_offset);
+            
+            if (found_references >= 5) break; // Limitar resultados para el log
         }
-    } else {
-        LOGI("[*] Mod operando de forma estable. Listo para el siguiente paso.");
     }
+
+    if (found_references == 0) {
+        LOGI("[-] No se hallaron punteros directos en .rodata.");
+    }
+
+    LOGI("[*] Búsqueda finalizada de forma estable.");
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
