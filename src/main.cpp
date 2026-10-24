@@ -45,27 +45,30 @@ void* hooked_container_controller_init(void* self) {
 struct dl_iterate_context {
     const char* name;
     uintptr_t base_addr;
-    uintptr_t rodata_start;
-    uintptr_t rodata_end;
+    uintptr_t data_start;
+    uintptr_t data_end;
 };
 
-// Callback para extraer los límites exactos de los segmentos de memoria de forma segura
 static int dl_iterate_callback(struct dl_phdr_info *info, size_t size, void *data) {
     auto* ctx = reinterpret_cast<dl_iterate_context*>(data);
     if (info->dlpi_name && strstr(info->dlpi_name, ctx->name)) {
         ctx->base_addr = info->dlpi_addr;
         
-        // Iterar sobre las cabeceras del programa ELF para encontrar la sección de datos de sólo lectura (.rodata)
+        // Buscamos el segmento de datos cargados (PT_LOAD que no sea estrictamente ejecutable)
         for (int i = 0; i < info->dlpi_phnum; i++) {
             const auto* phdr = &info->dlpi_phdr[i];
             if (phdr->p_type == PT_LOAD) {
-                bool is_writable = (phdr->p_flags & PF_W) != 0;
                 bool is_executable = (phdr->p_flags & PF_X) != 0;
-                
-                // .rodata es legible (R) pero NO escribible (W) y NO ejecutable (X)
-                if (!is_writable && !is_executable) {
-                    ctx->rodata_start = info->dlpi_addr + phdr->p_vaddr;
-                    ctx->rodata_end = ctx->rodata_start + phdr->p_memsz;
+                // Tomamos la región de datos antes del código ejecutable o cualquier segmento legible
+                if (!is_executable) {
+                    uintptr_t seg_start = info->dlpi_addr + phdr->p_vaddr;
+                    uintptr_t seg_end = seg_start + phdr->p_memsz;
+                    if (ctx->data_start == 0 || seg_start < ctx->data_start) {
+                        ctx->data_start = seg_start;
+                    }
+                    if (seg_end > ctx->data_end) {
+                        ctx->data_end = seg_end;
+                    }
                 }
             }
         }
@@ -82,7 +85,7 @@ void init_hooks() {
     }
 
     dl_iterate_context ctx = { "libminecraftpe.so", 0, 0, 0 };
-    while (ctx.base_addr == 0 || ctx.rodata_start == 0) {
+    while (ctx.base_addr == 0) {
         dl_iterate_phdr(dl_iterate_callback, &ctx);
         if (ctx.base_addr == 0) {
             usleep(100000);
@@ -90,28 +93,31 @@ void init_hooks() {
     }
     
     LOGI("[*] libminecraftpe.so base: 0x%lx", ctx.base_addr);
-    LOGI("[*] Sección .rodata localizada: 0x%lx - 0x%lx", ctx.rodata_start, ctx.rodata_end);
+    LOGI("[*] Rango de datos seguro: 0x%lx - 0x%lx", ctx.data_start, ctx.data_end);
 
     // Offset estático conocido de la cadena
     uintptr_t string_offset = 0x29c7706;
     uintptr_t string_addr = ctx.base_addr + string_offset;
     LOGI("[*] Cadena ContainerScreenController en: 0x%lx", string_addr);
 
-    // Escaneo seguro exclusivo dentro de la sección .rodata en busca de quién apunta a nuestra cadena
+    // Búsqueda en el segmento de datos seguro en busca de punteros de 8 bytes que apunten a nuestra cadena
     int found_references = 0;
-    for (uintptr_t addr = ctx.rodata_start; addr < ctx.rodata_end - 8; addr += 8) {
-        uintptr_t* ptr_val = reinterpret_cast<uintptr_t*>(addr);
-        if (*ptr_val == string_addr) {
-            found_references++;
-            uintptr_t rel_offset = addr - ctx.base_addr;
-            LOGI("[+] ¡Puntero encontrado en .rodata! RAM: 0x%lx | Offset Estático: 0x%lx", addr, rel_offset);
-            
-            if (found_references >= 5) break; // Limitar resultados para el log
+    if (ctx.data_start != 0 && ctx.data_end != 0) {
+        for (uintptr_t addr = ctx.data_start; addr < ctx.data_end - 8; addr += 8) {
+            uintptr_t* ptr_val = reinterpret_cast<uintptr_t*>(addr);
+            // Validación de seguridad adicional para evitar excepciones de lectura
+            if (*ptr_val == string_addr) {
+                found_references++;
+                uintptr_t rel_offset = addr - ctx.base_addr;
+                LOGI("[+] ¡Puntero encontrado! RAM: 0x%lx | Offset Estático: 0x%lx", addr, rel_offset);
+                
+                if (found_references >= 5) break;
+            }
         }
     }
 
     if (found_references == 0) {
-        LOGI("[-] No se hallaron punteros directos en .rodata.");
+        LOGI("[-] Sin coincidencias directas en el rango de datos analizado.");
     }
 
     LOGI("[*] Búsqueda finalizada de forma estable.");
