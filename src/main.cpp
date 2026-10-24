@@ -31,13 +31,11 @@ void write_log(const char* fmt, ...) {
 #define LOGI(...) write_log("[INFO] " __VA_ARGS__)
 #define LOGE(...) write_log("[ERROR] " __VA_ARGS__)
 
-// Puntero para la función original que interceptaremos
 typedef void* (*ContainerControllerInit_t)(void* self);
 ContainerControllerInit_t original_controller_init = nullptr;
 
-// Nuestra función de reemplazo (Hook)
 void* hooked_container_controller_init(void* self) {
-    LOGI("[+] ¡ÉXITO! Se interceptó el ContainerScreenController del inventario.");
+    LOGI("[+] ¡ÉXITO! Se interceptó el controlador de inventario.");
     if (original_controller_init) {
         return original_controller_init(self);
     }
@@ -47,75 +45,73 @@ void* hooked_container_controller_init(void* self) {
 struct dl_iterate_context {
     const char* name;
     uintptr_t base_addr;
+    ElfW(Addr) map_start;
+    ElfW(Addr) map_end;
 };
 
 static int dl_iterate_callback(struct dl_phdr_info *info, size_t size, void *data) {
     auto* ctx = reinterpret_cast<dl_iterate_context*>(data);
     if (info->dlpi_name && strstr(info->dlpi_name, ctx->name)) {
         ctx->base_addr = info->dlpi_addr;
+        
+        for (int i = 0; i < info->dlpi_phnum; i++) {
+            const auto* phdr = &info->dlpi_phdr[i];
+            if (phdr->p_type == PT_LOAD) {
+                if (ctx->map_start == 0) {
+                    ctx->map_start = info->dlpi_addr + phdr->p_vaddr;
+                }
+                ctx->map_end = info->dlpi_addr + phdr->p_vaddr + phdr->p_memsz;
+            }
+        }
         return 1;
     }
     return 0;
 }
 
-uintptr_t get_module_base(const char* module_name) {
-    dl_iterate_context ctx = { module_name, 0 };
-    dl_iterate_phdr(dl_iterate_callback, &ctx);
-    return ctx.base_addr;
-}
-
 void init_hooks() {
-    // Inicializar el archivo de log en Download limpio
     FILE* f = fopen(LOG_FILE_PATH, "w");
     if (f != NULL) {
         fprintf(f, "=== INICIO DEL MOD: CustomInventoryMod ===\n");
         fclose(f);
     }
 
-    uintptr_t base_addr = 0;
-    while (base_addr == 0) {
-        base_addr = get_module_base("libminecraftpe.so");
-        if (base_addr == 0) {
-            usleep(100000); // Esperar a que cargue la librería del juego
+    dl_iterate_context ctx = { "libminecraftpe.so", 0, 0, 0 };
+    while (ctx.base_addr == 0) {
+        dl_iterate_phdr(dl_iterate_callback, &ctx);
+        if (ctx.base_addr == 0) {
+            usleep(100000);
         }
     }
     
-    LOGI("[*] libminecraftpe.so base: 0x%lx", base_addr);
+    LOGI("[*] libminecraftpe.so base: 0x%lx", ctx.base_addr);
 
-    // 1. El offset estático exacto donde se encontró la cadena "ContainerScreenController"
+    // 1. Localizar la cadena "ContainerScreenController" con su offset exacto ya conocido
     uintptr_t string_offset = 0x29c7706;
-    uintptr_t string_absolute_addr = base_addr + string_offset;
-    LOGI("[*] Cadena detectada en dirección absoluta: 0x%lx", string_absolute_addr);
+    uintptr_t string_addr = ctx.base_addr + string_offset;
+    LOGI("[*] Usando dirección de cadena: 0x%lx", string_addr);
 
-    /* 
-      NOTA TÉCNICA: 
-      La dirección anterior apunta al texto plano. Para enganchar una función real sin crashear,
-      necesitamos apuntar al código ejecutable (.text). 
-      Como prueba inicial segura para verificar si Subhook acepta la zona de memoria,
-      vamos a usar un desplazamiento controlado o preparar el terreno con validación de memoria.
-    */
-
-    // Dirección de prueba segura (puedes ajustar este offset relativo basado en dónde esté la función)
-    // Por ahora lo dejamos preparado para recibir el offset de la función real del constructor
-    uintptr_t target_function_offset = 0x0; // Lo ajustaremos en base al análisis de proximidad
-
-    if (target_function_offset != 0) {
-        void* target_func = reinterpret_cast<void*>(base_addr + target_function_offset);
-        
-        subhook_t hook = subhook_new(target_func, (void*)hooked_container_controller_init, SUBHOOK_64BIT_OFFSET);
-        if (hook == nullptr) {
-            LOGE("[-] Error al crear el objeto hook con Subhook.");
-        } else {
-            if (subhook_install(hook) < 0) {
-                LOGE("[-] ¡Error al instalar el hook en la memoria ejecutable!");
-            } else {
-                LOGI("[+] ¡Hook instalado exitosamente en la función de inventario!");
-                original_controller_init = (ContainerControllerInit_t)subhook_get_trampoline(hook);
-            }
+    // 2. Búsqueda acotada y segura de referencias a la cadena en la sección de datos (.rodata / .data)
+    // Esto encuentra el puntero del typeinfo sin riesgo de crash
+    uintptr_t typeinfo_name_ptr = 0;
+    for (uintptr_t addr = ctx.map_start; addr < ctx.map_end - 8; addr += 8) {
+        // Validar que la lectura sea segura comprobando los límites
+        uintptr_t* val = reinterpret_cast<uintptr_t*>(addr);
+        if (*val == string_addr) {
+            typeinfo_name_ptr = addr;
+            LOGI("[+] Puntero al nombre encontrado en RAM: 0x%lx (Offset: 0x%lx)", addr, addr - ctx.base_addr);
+            break; // Tomamos la primera coincidencia válida del descriptor
         }
-    } else {
-        LOGI("[*] Mod ejecutándose de forma estable. Offset de cadena validado correctamente.");
     }
+
+    if (typeinfo_name_ptr != 0) {
+        LOGI("[*] Descriptor de tipo localizado con éxito.");
+        // A partir de aquí podemos ubicar la vtable en siguientes iteraciones
+    } else {
+        LOGI("[-] No se pudo aislar el puntero al nombre de forma automática.");
+    }
+
+    // Modo estable por ahora para verificar el log en Download
+    LOGI("[*] Mod ejecutándose de forma estable. Preparando vtable...");
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
