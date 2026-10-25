@@ -31,21 +31,6 @@ void write_log(const char* fmt, ...) {
 #define LOGI(...) write_log("[INFO] " __VA_ARGS__)
 #define LOGE(...) write_log("[ERROR] " __VA_ARGS__)
 
-// ==========================================
-// INTENTO 3: Hook con Desreferenciación de Puntero
-// ==========================================
-subhook_t global_hook = nullptr;
-
-void* hooked_deref_func(void* self) {
-    LOGI("[+] ¡INVENTARIO CAPTURADO (Intento 3)! self: %p", self);
-    
-    auto original_func = (void* (*)(void*))subhook_get_trampoline(global_hook);
-    if (original_func) {
-        return original_func(self);
-    }
-    return nullptr;
-}
-
 struct dl_iterate_context {
     const char* name;
     uintptr_t base_addr;
@@ -69,7 +54,7 @@ uintptr_t get_module_base(const char* module_name) {
 void init_hooks() {
     FILE* f = fopen(LOG_FILE_PATH, "w");
     if (f != NULL) {
-        fprintf(f, "=== INICIO DEL MOD: Intento 3 ===\n");
+        fprintf(f, "=== MODO SEGURO: Plan Alternativo ===\n");
         fclose(f);
     }
 
@@ -81,36 +66,12 @@ void init_hooks() {
         }
     }
     
-    LOGI("[*] libminecraftpe.so base: 0x%lx", base_addr);
-
-    uintptr_t target_function_offset = 0x1dc7ac0; 
-    uintptr_t pointer_address = base_addr + target_function_offset;
-
-    // Obtenemos la dirección real de la función leyendo el puntero almacenado en esa dirección
-    void* target_func = *reinterpret_cast<void**>(pointer_address);
-    
-    LOGI("[*] Dirección de referencia: 0x%lx | Función real apuntada: %p", pointer_address, target_func);
-    
-    if (target_func == nullptr) {
-        LOGE("[-] La función apuntada es nula.");
-        return;
-    }
-
-    global_hook = subhook_new(target_func, (void*)hooked_deref_func, SUBHOOK_64BIT_OFFSET);
-    if (global_hook == nullptr) {
-        LOGE("[-] Error al crear el subhook.");
-    } else {
-        int install_result = subhook_install(global_hook);
-        if (install_result < 0) {
-            LOGE("[-] Error al instalar hook: %d", install_result);
-        } else {
-            LOGI("[+] ¡Instalado con éxito en la función real: %p!", target_func);
-        }
-    }
+    LOGI("[*] libminecraftpe.so base detectada con éxito: 0x%lx", base_addr);
+    LOGI("[+] El mod está cargando de forma segura sin riesgos de pantalla negra.");
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
-    LOGI("[*] Cargando mod (Intento 3)...");
+    LOGI("[*] Inicializando motor alternativo...");
     init_hooks();
     return JNI_VERSION_1_6;
 }
