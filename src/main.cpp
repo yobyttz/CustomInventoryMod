@@ -32,14 +32,13 @@ void write_log(const char* fmt, ...) {
 #define LOGE(...) write_log("[ERROR] " __VA_ARGS__)
 
 // ==========================================
-// INTENTO 2: Hook simplificado de 1 argumento
+// INTENTO 3: Hook con Desreferenciación de Puntero
 // ==========================================
 subhook_t global_hook = nullptr;
 
-void* hooked_simple_passthrough(void* self) {
-    LOGI("[+] ¡Intento 2 disparado! self: %p", self);
+void* hooked_deref_func(void* self) {
+    LOGI("[+] ¡INVENTARIO CAPTURADO (Intento 3)! self: %p", self);
     
-    // Llamada directa al código original mediante el trampoline
     auto original_func = (void* (*)(void*))subhook_get_trampoline(global_hook);
     if (original_func) {
         return original_func(self);
@@ -70,7 +69,7 @@ uintptr_t get_module_base(const char* module_name) {
 void init_hooks() {
     FILE* f = fopen(LOG_FILE_PATH, "w");
     if (f != NULL) {
-        fprintf(f, "=== INICIO DEL MOD: Intento 2 ===\n");
+        fprintf(f, "=== INICIO DEL MOD: Intento 3 ===\n");
         fclose(f);
     }
 
@@ -85,11 +84,19 @@ void init_hooks() {
     LOGI("[*] libminecraftpe.so base: 0x%lx", base_addr);
 
     uintptr_t target_function_offset = 0x1dc7ac0; 
-    void* target_func = reinterpret_cast<void*>(base_addr + target_function_offset);
+    uintptr_t pointer_address = base_addr + target_function_offset;
+
+    // Obtenemos la dirección real de la función leyendo el puntero almacenado en esa dirección
+    void* target_func = *reinterpret_cast<void**>(pointer_address);
     
-    LOGI("[*] Instalando hook Intento 2 en: 0x%lx", (uintptr_t)target_func);
+    LOGI("[*] Dirección de referencia: 0x%lx | Función real apuntada: %p", pointer_address, target_func);
     
-    global_hook = subhook_new(target_func, (void*)hooked_simple_passthrough, SUBHOOK_64BIT_OFFSET);
+    if (target_func == nullptr) {
+        LOGE("[-] La función apuntada es nula.");
+        return;
+    }
+
+    global_hook = subhook_new(target_func, (void*)hooked_deref_func, SUBHOOK_64BIT_OFFSET);
     if (global_hook == nullptr) {
         LOGE("[-] Error al crear el subhook.");
     } else {
@@ -97,13 +104,13 @@ void init_hooks() {
         if (install_result < 0) {
             LOGE("[-] Error al instalar hook: %d", install_result);
         } else {
-            LOGI("[+] ¡Instalado con éxito en 0x%lx!", (uintptr_t)target_func);
+            LOGI("[+] ¡Instalado con éxito en la función real: %p!", target_func);
         }
     }
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
-    LOGI("[*] Cargando mod (Intento 2)...");
+    LOGI("[*] Cargando mod (Intento 3)...");
     init_hooks();
     return JNI_VERSION_1_6;
 }
