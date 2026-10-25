@@ -83,7 +83,7 @@ void init_hooks() {
     LOGI("[*] libminecraftpe.so base: 0x%lx", base_addr);
 
     // El offset exacto que demostró reaccionar con el inventario
-    uintptr_t target_function_offset = 0x29c5000; 
+    uintptr_t containerScreenControllerOffset = 0x1dc7ac0; 
 
     void* target_func = reinterpret_cast<void*>(base_addr + target_function_offset);
     
