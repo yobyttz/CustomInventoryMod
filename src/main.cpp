@@ -6,105 +6,86 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
-#include "subhook.h"
+#include "subhook.h" 
+#include <cstdint>
+#include <cstring>
 
-#define TAG "CustomInventoryMod"
-const char* LOG_FILE_PATH = "/storage/emulated/0/Download/mod_debug.txt";
+#define LOG_TAG "CustomInventoryMod"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-void write_log(const char* fmt, ...) {
-    va_list args1;
-    va_start(args1, fmt);
-    __android_log_vprint(ANDROID_LOG_INFO, TAG, fmt, args1);
-    va_end(args1);
-
-    FILE* f = fopen(LOG_FILE_PATH, "a");
-    if (f != NULL) {
-        va_list args2;
-        va_start(args2, fmt);
-        vfprintf(f, fmt, args2);
-        fprintf(f, "\n");
-        va_end(args2);
-        fclose(f);
+// Función auxiliar para obtener la dirección base de libminecraftpe.so en memoria
+uintptr_t get_module_base(const char* module_name) {
+    FILE* fp = fopen("/proc/self/maps", "r");
+    if (!fp) return 0;
+    
+    uintptr_t addr = 0;
+    char line[512];
+    while (fgets(line, sizeof(line), fp)) {
+        if (strstr(line, module_name)) {
+            char* sep = strchr(line, '-');
+            if (sep) {
+                *sep = '\0';
+                addr = strtoull(line, nullptr, 16);
+                break;
+            }
+        }
     }
+    fclose(fp);
+    return addr;
 }
 
-#define LOGI(...) write_log("[INFO] " __VA_ARGS__)
-#define LOGE(...) write_log("[ERROR] " __VA_ARGS__)
+// Estructura y puntero del hook con Subhook
+subhook_t container_hook;
+typedef void* (*ContainerScreenController_t)(void* _this);
+ContainerScreenController_t original_ContainerScreenController = nullptr;
 
-// Firma de un solo argumento (puntero `this` de la instancia del controlador de inventario)
-typedef void* (*InventoryFunc_t)(void* self);
-InventoryFunc_t original_inventory_func = nullptr;
-
-void* hooked_inventory_func(void* self) {
-    // Cada vez que entre aquí al abrir el inventario, lo escribirá al instante
-    LOGI("[+] ¡INVENTARIO CAPTURADO! Instancia (self): %p", self);
+// Nuestra función "hook" que interceptará la original
+void* hooked_ContainerScreenController(void* _this) {
+    LOGI("[+] ¡Se interceptó ContainerScreenController con éxito!");
     
-    if (original_inventory_func) {
-        return original_inventory_func(self);
+    // Llamamos a la función original usando el trampoline para no romper el flujo del juego
+    if (original_ContainerScreenController) {
+        return original_ContainerScreenController(_this);
     }
     return nullptr;
 }
 
-struct dl_iterate_context {
-    const char* name;
-    uintptr_t base_addr;
-};
-
-static int dl_iterate_callback(struct dl_phdr_info *info, size_t size, void *data) {
-    auto* ctx = reinterpret_cast<dl_iterate_context*>(data);
-    if (info->dlpi_name && strstr(info->dlpi_name, ctx->name)) {
-        ctx->base_addr = info->dlpi_addr;
-        return 1;
-    }
-    return 0;
-}
-
-uintptr_t get_module_base(const char* module_name) {
-    dl_iterate_context ctx = { module_name, 0 };
-    dl_iterate_phdr(dl_iterate_callback, &ctx);
-    return ctx.base_addr;
-}
-
-void init_hooks() {
-    FILE* f = fopen(LOG_FILE_PATH, "w");
-    if (f != NULL) {
-        fprintf(f, "=== INICIO DEL MOD: Caza de Inventario ===\n");
-        fclose(f);
-    }
+// Función principal de inicialización que se carga al iniciar la librería .so
+void initialize_mod() {
+    LOGI("[*] Iniciando CustomInventoryMod...");
 
     uintptr_t base_addr = 0;
+    // Esperamos a que libminecraftpe.so esté completamente cargado en memoria
     while (base_addr == 0) {
         base_addr = get_module_base("libminecraftpe.so");
         if (base_addr == 0) {
-            usleep(100000);
+            usleep(100000); // Esperar 100ms antes de reintentar
         }
     }
-    
-    LOGI("[*] libminecraftpe.so base: 0x%lx", base_addr);
 
-    // El offset exacto que demostró reaccionar con el inventario
-    uintptr_t containerScreenControllerOffset = 0x1dc7ac0; 
+    LOGI("[+] libminecraftpe.so encontrado en la base: 0x%lx", base_addr);
 
+    // Offset exacto descubierto mediante escaneo local en Termux
+    uintptr_t target_function_offset = 0x1dc7ac0;
     void* target_func = reinterpret_cast<void*>(base_addr + target_function_offset);
-    
-    LOGI("[*] Instalando hook de inventario en: 0x%lx", (uintptr_t)target_func);
-    
-    subhook_t hook = subhook_new(target_func, (void*)hooked_inventory_func, SUBHOOK_64BIT_OFFSET);
-    if (hook == nullptr) {
-        LOGE("[-] Error al crear el subhook.");
-    } else {
-        int install_result = subhook_install(hook);
-        if (install_result < 0) {
-            LOGE("[-] Error al instalar hook: %d", install_result);
+
+    LOGI("[*] Intentando enganchar la función en la dirección: %p", target_func);
+
+    // Instalación formal del hook usando Subhook
+    if (subhook_init(&container_hook, target_func, (void*)hooked_ContainerScreenController) >= 0) {
+        if (subhook_install(&container_hook) >= 0) {
+            original_ContainerScreenController = (ContainerScreenController_t)subhook_get_trampoline(&container_hook);
+            LOGI("[+] ¡Hook instalado correctamente con Subhook!");
         } else {
-            LOGI("[+] ¡Instalado con éxito en 0x%lx!", (uintptr_t)target_func);
-            original_inventory_func = (InventoryFunc_t)subhook_get_trampoline(hook);
+            LOGE("[-] Error al instalar el hook con subhook_install.");
         }
+    } else {
+        LOGE("[-] Error al inicializar subhook_init.");
     }
 }
 
-JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
-    LOGI("[*] Cargando mod de inventario...");
-    init_hooks();
-    return JNI_VERSION_1_6;
+// Punto de entrada estándar para la inyección nativa
+__attribute__((constructor)) void entry() {
+    initialize_mod();
 }
