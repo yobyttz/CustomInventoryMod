@@ -6,9 +6,9 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
-#include "subhook.h" 
 #include <cstdint>
-#include <cstring>
+#include <cstdlib>
+#include "subhook.h" 
 
 #define LOG_TAG "CustomInventoryMod"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -35,8 +35,8 @@ uintptr_t get_module_base(const char* module_name) {
     return addr;
 }
 
-// Estructura y puntero del hook con Subhook
-subhook_t container_hook;
+// Puntero del hook usando la estructura correcta de Subhook
+subhook_t container_hook = nullptr;
 typedef void* (*ContainerScreenController_t)(void* _this);
 ContainerScreenController_t original_ContainerScreenController = nullptr;
 
@@ -72,16 +72,17 @@ void initialize_mod() {
 
     LOGI("[*] Intentando enganchar la función en la dirección: %p", target_func);
 
-    // Instalación formal del hook usando Subhook
-    if (subhook_init(&container_hook, target_func, (void*)hooked_ContainerScreenController) >= 0) {
-        if (subhook_install(&container_hook) >= 0) {
-            original_ContainerScreenController = (ContainerScreenController_t)subhook_get_trampoline(&container_hook);
+    // Instalación formal usando subhook_new e instalando el hook directamente
+    container_hook = subhook_new(target_func, (void*)hooked_ContainerScreenController, 0);
+    if (container_hook != nullptr) {
+        if (subhook_install(container_hook) >= 0) {
+            original_ContainerScreenController = (ContainerScreenController_t)subhook_get_trampoline(container_hook);
             LOGI("[+] ¡Hook instalado correctamente con Subhook!");
         } else {
             LOGE("[-] Error al instalar el hook con subhook_install.");
         }
     } else {
-        LOGE("[-] Error al inicializar subhook_init.");
+        LOGE("[-] Error al crear el hook con subhook_new.");
     }
 }
 
