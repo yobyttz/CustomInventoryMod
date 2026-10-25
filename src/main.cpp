@@ -32,17 +32,19 @@ void write_log(const char* fmt, ...) {
 #define LOGE(...) write_log("[ERROR] " __VA_ARGS__)
 
 // ==========================================
-// INTENTO 1: Firma genérica de 3 argumentos
+// INTENTO 2: Hook simplificado de 1 argumento
 // ==========================================
-typedef void (*GenericFunc_t)(void*, void*, void*);
-GenericFunc_t original_generic_func = nullptr;
+subhook_t global_hook = nullptr;
 
-void hooked_generic_func(void* a1, void* a2, void* a3) {
-    LOGI("[+] ¡Intento 1 disparado! a1: %p, a2: %p", a1, a2);
+void* hooked_simple_passthrough(void* self) {
+    LOGI("[+] ¡Intento 2 disparado! self: %p", self);
     
-    if (original_generic_func) {
-        original_generic_func(a1, a2, a3);
+    // Llamada directa al código original mediante el trampoline
+    auto original_func = (void* (*)(void*))subhook_get_trampoline(global_hook);
+    if (original_func) {
+        return original_func(self);
     }
+    return nullptr;
 }
 
 struct dl_iterate_context {
@@ -68,7 +70,7 @@ uintptr_t get_module_base(const char* module_name) {
 void init_hooks() {
     FILE* f = fopen(LOG_FILE_PATH, "w");
     if (f != NULL) {
-        fprintf(f, "=== INICIO DEL MOD: Intento 1 ===\n");
+        fprintf(f, "=== INICIO DEL MOD: Intento 2 ===\n");
         fclose(f);
     }
 
@@ -82,29 +84,26 @@ void init_hooks() {
     
     LOGI("[*] libminecraftpe.so base: 0x%lx", base_addr);
 
-    // El offset correcto que encontramos
     uintptr_t target_function_offset = 0x1dc7ac0; 
-
     void* target_func = reinterpret_cast<void*>(base_addr + target_function_offset);
     
-    LOGI("[*] Instalando hook en: 0x%lx", (uintptr_t)target_func);
+    LOGI("[*] Instalando hook Intento 2 en: 0x%lx", (uintptr_t)target_func);
     
-    subhook_t hook = subhook_new(target_func, (void*)hooked_generic_func, SUBHOOK_64BIT_OFFSET);
-    if (hook == nullptr) {
+    global_hook = subhook_new(target_func, (void*)hooked_simple_passthrough, SUBHOOK_64BIT_OFFSET);
+    if (global_hook == nullptr) {
         LOGE("[-] Error al crear el subhook.");
     } else {
-        int install_result = subhook_install(hook);
+        int install_result = subhook_install(global_hook);
         if (install_result < 0) {
             LOGE("[-] Error al instalar hook: %d", install_result);
         } else {
             LOGI("[+] ¡Instalado con éxito en 0x%lx!", (uintptr_t)target_func);
-            original_generic_func = (GenericFunc_t)subhook_get_trampoline(hook);
         }
     }
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
-    LOGI("[*] Cargando mod (Intento 1)...");
+    LOGI("[*] Cargando mod (Intento 2)...");
     init_hooks();
     return JNI_VERSION_1_6;
 }
