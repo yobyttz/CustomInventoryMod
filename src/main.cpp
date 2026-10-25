@@ -40,9 +40,16 @@ subhook_t container_hook = nullptr;
 typedef void* (*ContainerScreenController_t)(void* _this);
 ContainerScreenController_t original_ContainerScreenController = nullptr;
 
-// Nuestra función "hook" que interceptará la original
+// Nuestra función "hook" que interceptará la original y creará el archivo en Descargas
 void* hooked_ContainerScreenController(void* _this) {
     LOGI("[+] ¡Se interceptó ContainerScreenController con éxito!");
+    
+    // Escribimos en el archivo de texto en la carpeta Download tal como lo hacíamos antes
+    FILE* f = fopen("/storage/emulated/0/Download/mod_debug.txt", "a");
+    if (f) {
+        fprintf(f, "[+] ¡Inventario interceptado con éxito en ContainerScreenController!\n");
+        fclose(f);
+    }
     
     // Llamamos a la función original usando el trampoline para no romper el flujo del juego
     if (original_ContainerScreenController) {
