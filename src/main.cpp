@@ -83,13 +83,12 @@ void init_hooks() {
     uintptr_t string_offset = 0x29c7706;
     LOGI("[*] Cadena ContainerScreenController verificada en offset: 0x%lx", string_offset);
 
-    // --- NUEVO CANDIDATO MUY CERCANO A LA CADENA ---
-    // Ajustado a un offset colindante en la zona de funciones compiladas
-    uintptr_t target_function_offset = 0x29c7000; 
+    // --- NUEVO CANDIDATO ADYACENTE DIRECTO (0x29c7800) ---
+    uintptr_t target_function_offset = 0x29c7800; 
 
     if (target_function_offset != 0) {
         void* target_func = reinterpret_cast<void*>(base_addr + target_function_offset);
-        LOGI("[*] Intentando instalar hook en candidato cercano: 0x%lx", (uintptr_t)target_func);
+        LOGI("[*] Intentando instalar hook en offset adyacente: 0x%lx", (uintptr_t)target_func);
         
         subhook_t hook = subhook_new(target_func, (void*)hooked_container_controller_init, SUBHOOK_64BIT_OFFSET);
         if (hook == nullptr) {
