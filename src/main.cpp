@@ -66,7 +66,7 @@ uintptr_t get_module_base(const char* module_name) {
 void init_hooks() {
     FILE* f = fopen(LOG_FILE_PATH, "w");
     if (f != NULL) {
-        fprintf(f, "=== INICIO DEL MOD: CustomInventoryMod ===\n");
+        fprintf(f, "=== INICIO DEL MOD: CustomInventoryMod (Modo Diagnóstico) ===\n");
         fclose(f);
     }
 
@@ -83,26 +83,29 @@ void init_hooks() {
     uintptr_t string_offset = 0x29c7706;
     LOGI("[*] Cadena ContainerScreenController verificada en offset: 0x%lx", string_offset);
 
-    // --- CANDIDATO DE BLOQUE DE UI INTERMEDIO (0x29c5000) ---
+    // --- INTENTO 1: Probando base de bloque UI con validación estricta ---
     uintptr_t target_function_offset = 0x29c5000; 
 
-    if (target_function_offset != 0) {
-        void* target_func = reinterpret_cast<void*>(base_addr + target_function_offset);
-        LOGI("[*] Intentando instalar hook en candidato de bloque UI: 0x%lx", (uintptr_t)target_func);
-        
-        subhook_t hook = subhook_new(target_func, (void*)hooked_container_controller_init, SUBHOOK_64BIT_OFFSET);
-        if (hook == nullptr) {
-            LOGE("[-] Error al crear el objeto Subhook.");
-        } else {
-            if (subhook_install(hook) < 0) {
-                LOGE("[-] ¡Error al instalar el hook!");
-            } else {
-                LOGI("[+] ¡Hook instalado exitosamente!");
-                original_controller_init = (ContainerControllerInit_t)subhook_get_trampoline(hook);
-            }
-        }
+    void* target_func = reinterpret_cast<void*>(base_addr + target_function_offset);
+    
+    // Verificamos alineación de 4 bytes obligatoria en ARM64
+    if ((uintptr_t)target_func % 4 != 0) {
+        LOGE("[-] ADVERTENCIA: La dirección 0x%lx NO está alineada a 4 bytes (Riesgo de corrupción ARM64).", (uintptr_t)target_func);
+    }
+
+    LOGI("[*] Intentando instalar hook con validación en: 0x%lx", (uintptr_t)target_func);
+    
+    subhook_t hook = subhook_new(target_func, (void*)hooked_container_controller_init, SUBHOOK_64BIT_OFFSET);
+    if (hook == nullptr) {
+        LOGE("[-] Error crítico: subhook_new devolvió nullptr (memoria o parámetros inválidos).");
     } else {
-        LOGI("[*] Mod operando en modo estable.");
+        int install_result = subhook_install(hook);
+        if (install_result < 0) {
+            LOGE("[-] ¡Subhook rechazó la instalación! Código de error interno: %d", install_result);
+        } else {
+            LOGI("[+] ¡VERIFICADO! Hook instalado y aceptado por el sistema en 0x%lx", (uintptr_t)target_func);
+            original_controller_init = (ContainerControllerInit_t)subhook_get_trampoline(hook);
+        }
     }
 }
 
