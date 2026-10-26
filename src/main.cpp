@@ -39,20 +39,18 @@ void write_log(const char* fmt, ...) {
 
 uintptr_t base_module_addr = 0;
 
-// Definimos los tipos de las funciones clave basadas en los offsets encontrados
-// (Usamos void* temporalmente para asegurar compatibilidad de llamadas)
-typedef void* (*addChildGroup_t)(void* self, void* group1, void* group2);
+// Definimos la estructura de la función original para ARM64
+typedef void* (*addChildGroup_t)(void* _this, void* group1, void* group2);
 addChildGroup_t original_addChildGroup = nullptr;
 
 subhook_t addChildGroup_hook;
 
-// Nuestra función interceptada (Hook) para cuando el juego añada grupos de ítems
-void* hk_addChildGroup(void* self, void* group1, void* group2) {
-    // Aquí es donde interceptaremos la llamada para inyectar nuestras 2 pestañas custom
-    LOGI("[*] Interceptado: addChildGroup llamado. ¡Inyectando pestañas personalizadas!");
+// Nuestra función interceptada de forma segura y pasiva
+void* hk_addChildGroup(void* _this, void* group1, void* group2) {
+    LOGI("[*] addChildGroup interceptado de forma segura.");
     
-    // Llamamos a la función original para no romper la cadena de grupos nativos del juego
-    return original_addChildGroup(self, group1, group2);
+    // Llamamos limpiamente a la función original para mantener la estabilidad
+    return original_addChildGroup(_this, group1, group2);
 }
 
 // ==========================================
@@ -143,15 +141,13 @@ void init_custom_tabs() {
 
     LOGI("[*] Base: 0x%lx | Tamaño: %zu bytes", base_module_addr, mod_size);
 
+    // Firma exacta de addChildGroup
     const char* addChildGroup_sig = "FF 03 02 D1 FD 7B 02 A9 FC 6F 03 A9 FA 67 04 A9 F8 5F 05 A9 F6 57 06 A9 F4 4F 07 A9 FD 83 00 91 59 D0 3B D5 28 17 40 F9 A8 83 1F F8 08 1C 40 F9 ?? ?? ?? ?? F4 03 00 AA 00 00 01 91 F5 03 02 AA";
     
     uintptr_t addr = find_signature(base_module_addr, mod_size, addChildGroup_sig);
     if (addr != 0) {
         LOGI("[+] addChildGroup encontrado en offset real: 0x%lx", addr - base_module_addr);
         
-        // --- PRUEBA DE SEGURIDAD ---
-        // Comentamos el hook temporalmente para verificar si esto evita el cierre al entrar al mundo
-        /*
         addChildGroup_hook = subhook_new((void*)addr, (void*)hk_addChildGroup, 0);
         if (addChildGroup_hook != nullptr) {
             original_addChildGroup = (addChildGroup_t)subhook_get_trampoline(addChildGroup_hook);
@@ -161,14 +157,10 @@ void init_custom_tabs() {
                 LOGE("[-] Error al instalar el hook con subhook_install");
             }
         }
-        */
-        LOGI("[*] Hook omitido temporalmente para prueba de estabilidad.");
     } else {
         LOGI("[-] No se pudo ubicar addChildGroup para el hook.");
     }
 }
-
-
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
     LOGI("[*] Cargando módulo de pestañas...");
