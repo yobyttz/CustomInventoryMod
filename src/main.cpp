@@ -8,7 +8,7 @@
 #include <stdarg.h>
 #include "subhook.h"
 
-#define TAG "CustomInventoryMod"
+#define TAG "backpack"
 const char* LOG_FILE_PATH = "/storage/emulated/0/Download/mod_debug.txt";
 
 void write_log(const char* fmt, ...) {
