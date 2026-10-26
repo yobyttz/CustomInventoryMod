@@ -39,18 +39,20 @@ void write_log(const char* fmt, ...) {
 
 uintptr_t base_module_addr = 0;
 
-// Definimos la estructura de la función original para ARM64
 typedef void* (*addChildGroup_t)(void* _this, void* group1, void* group2);
 addChildGroup_t original_addChildGroup = nullptr;
 
 subhook_t addChildGroup_hook;
 
-// Nuestra función interceptada de forma segura y pasiva
+// Prueba: Omitir la llamada al original para ver si se evita el cierre
 void* hk_addChildGroup(void* _this, void* group1, void* group2) {
-    LOGI("[*] addChildGroup interceptado de forma segura.");
+    LOGI("[*] hk_addChildGroup alcanzado. Omitiendo llamada original temporalmente.");
     
-    // Llamamos limpiamente a la función original para mantener la estabilidad
-    return original_addChildGroup(_this, group1, group2);
+    // Si quieres probar devolviendo un nulo o simplemente saltando el original:
+    return nullptr; 
+    
+    // O si prefieres probar llamándolo pero capturando:
+    // return original_addChildGroup(_this, group1, group2);
 }
 
 // ==========================================
@@ -127,7 +129,7 @@ uintptr_t find_signature(uintptr_t base, size_t size, const char* sig) {
 void init_custom_tabs() {
     FILE* f = fopen(LOG_FILE_PATH, "w");
     if (f != NULL) {
-        fprintf(f, "=== INICIO: Mod de Pestañas Custom ===\n");
+        fprintf(f, "=== INICIO: Mod de Pestañas Custom (Prueba) ===\n");
         fclose(f);
     }
 
@@ -141,7 +143,6 @@ void init_custom_tabs() {
 
     LOGI("[*] Base: 0x%lx | Tamaño: %zu bytes", base_module_addr, mod_size);
 
-    // Firma exacta de addChildGroup
     const char* addChildGroup_sig = "FF 03 02 D1 FD 7B 02 A9 FC 6F 03 A9 FA 67 04 A9 F8 5F 05 A9 F6 57 06 A9 F4 4F 07 A9 FD 83 00 91 59 D0 3B D5 28 17 40 F9 A8 83 1F F8 08 1C 40 F9 ?? ?? ?? ?? F4 03 00 AA 00 00 01 91 F5 03 02 AA";
     
     uintptr_t addr = find_signature(base_module_addr, mod_size, addChildGroup_sig);
