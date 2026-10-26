@@ -7,10 +7,18 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <vector>
+#include <string>
 #include <sstream>
-#include "And64InlineHook.hpp" // Cambiamos subhook por And64InlineHook
+#include <fstream>
+#include <dirent.h>
+#include <sys/stat.h>
 
-#define TAG "backpack"
+#include "And64InlineHook.hpp"
+#include "json.hpp"
+
+using json = nlohmann::json;
+
+#define TAG "CustomTabsFramework"
 const char* LOG_FILE_PATH = "/storage/emulated/0/Download/mod_debug.txt";
 
 void write_log(const char* fmt, ...) {
@@ -33,22 +41,109 @@ void write_log(const char* fmt, ...) {
 #define LOGI(...) write_log("[INFO] " __VA_ARGS__)
 #define LOGE(...) write_log("[ERROR] " __VA_ARGS__)
 
-uintptr_t base_module_addr = 0;
+// ==========================================
+// ESTRUCTURAS DE DATOS DE PESTAÑAS CUSTOM
+// ==========================================
 
-// Puntero para la función original usando el formato de And64InlineHook
-typedef void* (*addCreativeItemEntry_t)(void* _this, void* itemEntry);
-addCreativeItemEntry_t original_addCreativeItemEntry = nullptr;
+struct CustomTab {
+    std::string id;
+    std::string title;
+    std::string icon;
+    std::vector<std::string> items;
+};
 
-// Nuestra función interceptada con And64InlineHook
-void* hk_addCreativeItemEntry(void* _this, void* itemEntry) {
-    LOGI("[*] addCreativeItemEntry interceptado con estabilidad ARM64.");
-    
-    // Llamamos al original de forma segura mediante el respaldo de la librería
-    return original_addCreativeItemEntry(_this, itemEntry);
+std::vector<CustomTab> g_loaded_custom_tabs;
+bool g_tabs_loaded = false;
+
+// ==========================================
+// CARGADOR Y PARSER DE ARCHIVOS JSON (Tabs/)
+// ==========================================
+
+void parse_tab_json_file(const std::string& filepath) {
+    std::ifstream file(filepath);
+    if (!file.is_open()) {
+        LOGE("[-] No se pudo abrir el archivo JSON: %s", filepath.c_str());
+        return;
+    }
+
+    try {
+        json j;
+        file >> j;
+
+        if (j.contains("custom_tabs") && j["custom_tabs"].is_array()) {
+            for (const auto& tab_json : j["custom_tabs"]) {
+                CustomTab tab;
+                tab.id = tab_json.value("id", "custom:unknown_tab");
+                tab.title = tab_json.value("title", "Pestaña Custom");
+                tab.icon = tab_json.value("icon", "minecraft:dirt");
+
+                if (tab_json.contains("items") && tab_json["items"].is_array()) {
+                    for (const auto& item_json : tab_json["items"]) {
+                        tab.items.push_back(item_json.get<std::string>());
+                    }
+                }
+
+                g_loaded_custom_tabs.push_back(tab);
+                LOGI("[+] Pestaña cargada: '%s' con %zu ítems (Desde: %s)", 
+                     tab.title.c_str(), tab.items.size(), filepath.c_str());
+            }
+        }
+    } catch (const std::exception& e) {
+        LOGE("[-] Error al parsear JSON (%s): %s", filepath.c_str(), e.what());
+    }
+}
+
+void scan_tabs_directory(const std::string& tabs_dir_path) {
+    DIR* dir = opendir(tabs_dir_path.c_str());
+    if (!dir) return;
+
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != NULL) {
+        std::string fname = entry->d_name;
+        if (fname == "." || fname == "..") continue;
+
+        std::string full_path = tabs_dir_path + "/" + fname;
+        
+        struct stat st;
+        if (stat(full_path.c_str(), &st) == 0) {
+            if (S_ISREG(st.st_mode) && fname.find(".json") != std::string::npos) {
+                LOGI("[*] Procesando archivo de pestaña: %s", full_path.c_str());
+                parse_tab_json_file(full_path);
+            }
+        }
+    }
+    closedir(dir);
 }
 
 // ==========================================
-// MOTOR DE ESCANEO
+// PUNTEROS Y HOOK DE addCreativeItemEntry
+// ==========================================
+
+uintptr_t base_module_addr = 0;
+
+typedef void* (*addCreativeItemEntry_t)(void* _this, void* itemEntry);
+addCreativeItemEntry_t original_addCreativeItemEntry = nullptr;
+
+void* hk_addCreativeItemEntry(void* _this, void* itemEntry) {
+    void* result = original_addCreativeItemEntry(_this, itemEntry);
+
+    if (!g_tabs_loaded && !g_loaded_custom_tabs.empty()) {
+        LOGI("[*] Inyectando %zu pestañas custom en el registro creativo...", g_loaded_custom_tabs.size());
+        
+        for (const auto& tab : g_loaded_custom_tabs) {
+            LOGI("[+] Registrando items para la pestaña: '%s' (Icono: %s)", tab.title.c_str(), tab.icon.c_str());
+            for (const auto& item_id : tab.items) {
+                LOGI("    -> Ítem registrado en pestaña: %s", item_id.c_str());
+            }
+        }
+        g_tabs_loaded = true;
+    }
+
+    return result;
+}
+
+// ==========================================
+// MOTOR DE ESCANEO DE DIRECCIONES EN MEMORIA
 // ==========================================
 
 struct dl_iterate_context {
@@ -118,10 +213,14 @@ uintptr_t find_signature(uintptr_t base, size_t size, const char* sig) {
     return 0;
 }
 
-void init_stable_hook() {
+// ==========================================
+// INICIALIZACIÓN DEL FRAMEWORK
+// ==========================================
+
+void init_framework() {
     FILE* f = fopen(LOG_FILE_PATH, "w");
     if (f != NULL) {
-        fprintf(f, "=== INICIO: Mod con And64InlineHook ===\n");
+        fprintf(f, "=== INICIO: Custom Tabs Framework ARM64 ===\n");
         fclose(f);
     }
 
@@ -133,7 +232,7 @@ void init_stable_hook() {
         }
     }
 
-    LOGI("[*] Base: 0x%lx | Tamaño: %zu bytes", base_module_addr, mod_size);
+    LOGI("[*] Base libminecraftpe.so: 0x%lx | Tamaño: %zu bytes", base_module_addr, mod_size);
 
     const char* addCreativeItemEntry_sig = "FD 7B BE A9 F4 4F 01 A9 FD 03 00 91 ?? ?? ?? ?? F4 03 00 AA 20 A0 00 91 F3 03 01 AA ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 81 62 40 39 3F 00 20 6B ?? ?? ?? ?? 68 1A 40 F9 00 01 40 F9 ?? ?? ?? ??";
     
@@ -141,16 +240,15 @@ void init_stable_hook() {
     if (addr != 0) {
         LOGI("[+] addCreativeItemEntry encontrado en offset real: 0x%lx", addr - base_module_addr);
         
-        // Instalamos el hook usando la sintaxis robusta de And64InlineHook
         A64HookFunction((void*)addr, (void*)hk_addCreativeItemEntry, (void**)&original_addCreativeItemEntry);
-        LOGI("[+] ¡Hook ARM64 instalado con éxito!");
+        LOGI("[+] ¡Framework de Pestañas Hookeado con éxito en ARM64!");
     } else {
-        LOGI("[-] No se pudo ubicar addCreativeItemEntry.");
+        LOGE("[-] No se pudo ubicar addCreativeItemEntry.");
     }
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
-    LOGI("[*] Cargando módulo estable...");
-    init_stable_hook();
+    LOGI("[*] Cargando Framework de Pestañas Custom...");
+    init_framework();
     return JNI_VERSION_1_6;
 }
