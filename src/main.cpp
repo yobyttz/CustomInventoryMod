@@ -35,7 +35,6 @@ void write_log(const char* fmt, ...) {
 // FASE 1: Estructura lógica del Slot de Mochila
 // ==========================================
 
-// Variable de control para verificar si nuestro gestor lógico responde
 bool backpack_slot_initialized = false;
 
 struct dl_iterate_context {
@@ -75,7 +74,6 @@ void init_backpack_logic() {
     
     LOGI("[*] libminecraftpe.so base detectada: 0x%lx", base_addr);
     
-    // Inicializamos nuestro espacio de datos virtual para el slot de la mochila
     backpack_slot_initialized = true;
     LOGI("[+] ¡Estructura lógica del slot de mochila inicializada con éxito en memoria!");
 }
