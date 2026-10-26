@@ -8,7 +8,7 @@
 #include <stdarg.h>
 #include <vector>
 #include <sstream>
-#include "subhook.h"
+#include "And64InlineHook.hpp" // Cambiamos subhook por And64InlineHook
 
 #define TAG "backpack"
 const char* LOG_FILE_PATH = "/storage/emulated/0/Download/mod_debug.txt";
@@ -33,24 +33,17 @@ void write_log(const char* fmt, ...) {
 #define LOGI(...) write_log("[INFO] " __VA_ARGS__)
 #define LOGE(...) write_log("[ERROR] " __VA_ARGS__)
 
-// ==========================================
-// PUNTEROS PARA addCreativeItemEntry
-// ==========================================
-
 uintptr_t base_module_addr = 0;
 
-// Definimos el tipo de función para addCreativeItemEntry basada en tu escaneo previo
+// Puntero para la función original usando el formato de And64InlineHook
 typedef void* (*addCreativeItemEntry_t)(void* _this, void* itemEntry);
 addCreativeItemEntry_t original_addCreativeItemEntry = nullptr;
 
-subhook_t addCreativeItemEntry_hook;
-
-// Hook pasivo y seguro en addCreativeItemEntry
+// Nuestra función interceptada con And64InlineHook
 void* hk_addCreativeItemEntry(void* _this, void* itemEntry) {
-    // Aquí interceptamos cuando el juego añade elementos al creativo
-    LOGI("[*] addCreativeItemEntry llamado. Elemento creativo detectado.");
+    LOGI("[*] addCreativeItemEntry interceptado con estabilidad ARM64.");
     
-    // Llamamos limpiamente a la función original para que no se altere ningún ítem del juego
+    // Llamamos al original de forma segura mediante el respaldo de la librería
     return original_addCreativeItemEntry(_this, itemEntry);
 }
 
@@ -125,10 +118,10 @@ uintptr_t find_signature(uintptr_t base, size_t size, const char* sig) {
     return 0;
 }
 
-void init_item_injection() {
+void init_stable_hook() {
     FILE* f = fopen(LOG_FILE_PATH, "w");
     if (f != NULL) {
-        fprintf(f, "=== INICIO: Mod de Inyección Creativa ===\n");
+        fprintf(f, "=== INICIO: Mod con And64InlineHook ===\n");
         fclose(f);
     }
 
@@ -142,29 +135,22 @@ void init_item_injection() {
 
     LOGI("[*] Base: 0x%lx | Tamaño: %zu bytes", base_module_addr, mod_size);
 
-    // Firma exacta de addCreativeItemEntry que ya comprobamos que funciona
     const char* addCreativeItemEntry_sig = "FD 7B BE A9 F4 4F 01 A9 FD 03 00 91 ?? ?? ?? ?? F4 03 00 AA 20 A0 00 91 F3 03 01 AA ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 81 62 40 39 3F 00 20 6B ?? ?? ?? ?? 68 1A 40 F9 00 01 40 F9 ?? ?? ?? ??";
     
     uintptr_t addr = find_signature(base_module_addr, mod_size, addCreativeItemEntry_sig);
     if (addr != 0) {
         LOGI("[+] addCreativeItemEntry encontrado en offset real: 0x%lx", addr - base_module_addr);
         
-        addCreativeItemEntry_hook = subhook_new((void*)addr, (void*)hk_addCreativeItemEntry, 0);
-        if (addCreativeItemEntry_hook != nullptr) {
-            original_addCreativeItemEntry = (addCreativeItemEntry_t)subhook_get_trampoline(addCreativeItemEntry_hook);
-            if (subhook_install(addCreativeItemEntry_hook) == 0) {
-                LOGI("[+] ¡Hook instalado exitosamente en addCreativeItemEntry!");
-            } else {
-                LOGE("[-] Error al instalar el hook con subhook_install");
-            }
-        }
+        // Instalamos el hook usando la sintaxis robusta de And64InlineHook
+        A64HookFunction((void*)addr, (void*)hk_addCreativeItemEntry, (void**)&original_addCreativeItemEntry);
+        LOGI("[+] ¡Hook ARM64 instalado con éxito!");
     } else {
-        LOGI("[-] No se pudo ubicar addCreativeItemEntry para el hook.");
+        LOGI("[-] No se pudo ubicar addCreativeItemEntry.");
     }
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
-    LOGI("[*] Cargando módulo de inyección...");
-    init_item_injection();
+    LOGI("[*] Cargando módulo estable...");
+    init_stable_hook();
     return JNI_VERSION_1_6;
 }
