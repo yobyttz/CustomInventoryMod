@@ -41,7 +41,6 @@ bool A64HookFunction(void *symbol, void *replace, void **result) {
     a_trampoline[1] = a_symbol[1];
     
     // Escribimos el salto de vuelta desde el trampolín al resto de la función original
-    // Instrucciones ARM64: ldr x16, #8; br x16; [dirección de 64 bits]
     uint64_t next_addr = (uint64_t)(symbol) + 8;
     a_trampoline[2] = 0x58000050; // ldr x16, #8
     a_trampoline[3] = 0xd61f0200; // br x16
@@ -52,9 +51,9 @@ bool A64HookFunction(void *symbol, void *replace, void **result) {
     a_symbol[1] = 0xd61f0200; // br x16
     *(uint64_t *)((uintptr_t)symbol + 8) = (uint64_t)replace;
     
-    // Limpiamos el caché de instrucciones de la CPU
-    __builtin___clear_cache(trampoline, (char *)trampoline + 32);
-    __builtin___clear_cache(symbol, (char *)symbol + 32);
+    // CORREGIDO: Casteo explícito a (char*) para satisfacer los tipos de la NDK
+    __builtin___clear_cache((char *)trampoline, (char *)trampoline + 32);
+    __builtin___clear_cache((char *)symbol, (char *)symbol + 32);
     
     if (result) {
         *result = trampoline;
