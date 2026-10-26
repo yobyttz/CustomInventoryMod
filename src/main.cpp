@@ -150,8 +150,8 @@ void init_custom_tabs() {
     if (addr != 0) {
         LOGI("[+] addChildGroup encontrado en offset real: 0x%lx", addr - base_module_addr);
         
-        // Configuramos el hook con subhook
-        addChildGroup_hook = subhook_new((void*)addr, (void*)hk_addChildGroup);
+        // CORREGIDO: Añadido el tercer parámetro '0' para cumplir con la firma de subhook
+        addChildGroup_hook = subhook_new((void*)addr, (void*)hk_addChildGroup, 0);
         if (addChildGroup_hook != nullptr) {
             original_addChildGroup = (addChildGroup_t)subhook_get_trampoline(addChildGroup_hook);
             if (subhook_install(addChildGroup_hook) == 0) {
@@ -164,6 +164,7 @@ void init_custom_tabs() {
         LOGI("[-] No se pudo ubicar addChildGroup para el hook.");
     }
 }
+
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
     LOGI("[*] Cargando módulo de pestañas...");
