@@ -143,14 +143,15 @@ void init_custom_tabs() {
 
     LOGI("[*] Base: 0x%lx | Tamaño: %zu bytes", base_module_addr, mod_size);
 
-    // Firma de addChildGroup que nos dio éxito en el escaneo anterior
     const char* addChildGroup_sig = "FF 03 02 D1 FD 7B 02 A9 FC 6F 03 A9 FA 67 04 A9 F8 5F 05 A9 F6 57 06 A9 F4 4F 07 A9 FD 83 00 91 59 D0 3B D5 28 17 40 F9 A8 83 1F F8 08 1C 40 F9 ?? ?? ?? ?? F4 03 00 AA 00 00 01 91 F5 03 02 AA";
     
     uintptr_t addr = find_signature(base_module_addr, mod_size, addChildGroup_sig);
     if (addr != 0) {
         LOGI("[+] addChildGroup encontrado en offset real: 0x%lx", addr - base_module_addr);
         
-        // CORREGIDO: Añadido el tercer parámetro '0' para cumplir con la firma de subhook
+        // --- PRUEBA DE SEGURIDAD ---
+        // Comentamos el hook temporalmente para verificar si esto evita el cierre al entrar al mundo
+        /*
         addChildGroup_hook = subhook_new((void*)addr, (void*)hk_addChildGroup, 0);
         if (addChildGroup_hook != nullptr) {
             original_addChildGroup = (addChildGroup_t)subhook_get_trampoline(addChildGroup_hook);
@@ -160,10 +161,13 @@ void init_custom_tabs() {
                 LOGE("[-] Error al instalar el hook con subhook_install");
             }
         }
+        */
+        LOGI("[*] Hook omitido temporalmente para prueba de estabilidad.");
     } else {
         LOGI("[-] No se pudo ubicar addChildGroup para el hook.");
     }
 }
+
 
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
