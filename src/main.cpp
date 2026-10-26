@@ -31,6 +31,13 @@ void write_log(const char* fmt, ...) {
 #define LOGI(...) write_log("[INFO] " __VA_ARGS__)
 #define LOGE(...) write_log("[ERROR] " __VA_ARGS__)
 
+// ==========================================
+// FASE 1: Estructura lógica del Slot de Mochila
+// ==========================================
+
+// Variable de control para verificar si nuestro gestor lógico responde
+bool backpack_slot_initialized = false;
+
 struct dl_iterate_context {
     const char* name;
     uintptr_t base_addr;
@@ -51,10 +58,10 @@ uintptr_t get_module_base(const char* module_name) {
     return ctx.base_addr;
 }
 
-void init_hooks() {
+void init_backpack_logic() {
     FILE* f = fopen(LOG_FILE_PATH, "w");
     if (f != NULL) {
-        fprintf(f, "=== MODO SEGURO: Plan Alternativo ===\n");
+        fprintf(f, "=== INICIO: Fase 1 (Slot Logico de Mochila) ===\n");
         fclose(f);
     }
 
@@ -66,12 +73,15 @@ void init_hooks() {
         }
     }
     
-    LOGI("[*] libminecraftpe.so base detectada con éxito: 0x%lx", base_addr);
-    LOGI("[+] El mod está cargando de forma segura sin riesgos de pantalla negra.");
+    LOGI("[*] libminecraftpe.so base detectada: 0x%lx", base_addr);
+    
+    // Inicializamos nuestro espacio de datos virtual para el slot de la mochila
+    backpack_slot_initialized = true;
+    LOGI("[+] ¡Estructura lógica del slot de mochila inicializada con éxito en memoria!");
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
-    LOGI("[*] Inicializando motor alternativo...");
-    init_hooks();
+    LOGI("[*] Cargando módulo de la Mochila (Fase 1)...");
+    init_backpack_logic();
     return JNI_VERSION_1_6;
 }
