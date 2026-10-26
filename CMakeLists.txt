@@ -1,14 +1,15 @@
-cmake_minimum_required(VERSION 3.22.1)
-project(backpack)
+cmake_minimum_required(VERSION 3.10.2)
+project("backpack")
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-# Compila la librería compartida usando tu main y los archivos de subhook
-add_library(backpack SHARED 
+# Añadimos los archivos fuente de nuestro mod y de la librería de hooks
+add_library(backpack SHARED
     src/main.cpp
-    src/subhook.c 
+    src/And64InlineHook.cpp
 )
 
+# Indicamos dónde están los archivos de cabecera (.hpp)
 target_include_directories(backpack PRIVATE src)
-target_link_libraries(backpack PRIVATE log)
+
+# Enlazamos las librerías nativas de Android necesarias para logs y memoria
+find_library(log-lib log)
+target_link_libraries(backpack ${log-lib} android)
