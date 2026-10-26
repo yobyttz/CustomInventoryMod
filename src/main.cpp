@@ -34,7 +34,29 @@ void write_log(const char* fmt, ...) {
 #define LOGE(...) write_log("[ERROR] " __VA_ARGS__)
 
 // ==========================================
-// MOTOR DE ESCANEO DE PATRONES
+// PUNTEROS Y HOOKS PARA CREATIVE TABS
+// ==========================================
+
+uintptr_t base_module_addr = 0;
+
+// Definimos los tipos de las funciones clave basadas en los offsets encontrados
+// (Usamos void* temporalmente para asegurar compatibilidad de llamadas)
+typedef void* (*addChildGroup_t)(void* self, void* group1, void* group2);
+addChildGroup_t original_addChildGroup = nullptr;
+
+subhook_t addChildGroup_hook;
+
+// Nuestra función interceptada (Hook) para cuando el juego añada grupos de ítems
+void* hk_addChildGroup(void* self, void* group1, void* group2) {
+    // Aquí es donde interceptaremos la llamada para inyectar nuestras 2 pestañas custom
+    LOGI("[*] Interceptado: addChildGroup llamado. ¡Inyectando pestañas personalizadas!");
+    
+    // Llamamos a la función original para no romper la cadena de grupos nativos del juego
+    return original_addChildGroup(self, group1, group2);
+}
+
+// ==========================================
+// MOTOR DE ESCANEO
 // ==========================================
 
 struct dl_iterate_context {
@@ -104,59 +126,47 @@ uintptr_t find_signature(uintptr_t base, size_t size, const char* sig) {
     return 0;
 }
 
-void scan_mod_signatures() {
+void init_custom_tabs() {
     FILE* f = fopen(LOG_FILE_PATH, "w");
     if (f != NULL) {
-        fprintf(f, "=== INICIO: Escaneo de Firmas de Item Groups ===\n");
+        fprintf(f, "=== INICIO: Mod de Pestañas Custom ===\n");
         fclose(f);
     }
 
-    uintptr_t base_addr = 0;
     size_t mod_size = 0;
-    
-    while (base_addr == 0 || mod_size == 0) {
-        base_addr = get_module_info("libminecraftpe.so", mod_size);
-        if (base_addr == 0) {
+    while (base_module_addr == 0 || mod_size == 0) {
+        base_module_addr = get_module_info("libminecraftpe.so", mod_size);
+        if (base_module_addr == 0) {
             usleep(100000);
         }
     }
 
-    LOGI("[*] Base: 0x%lx | Tamaño ejecutable: %zu bytes", base_addr, mod_size);
+    LOGI("[*] Base: 0x%lx | Tamaño: %zu bytes", base_module_addr, mod_size);
 
-    // Lista de firmas recopiladas del mod de tabs/items
-    struct SigTarget {
-        const char* name;
-        const char* sig;
-    };
-
-    SigTarget targets[] = {
-        {"addLooseCreativeItemsTarget", "FF 03 05 D1 FD 7B 0F A9 FC 67 10 A9 F8 5F 11 A9 F6 57 12 A9 F4 4F 13 A9 FD C3 03 91 55 D0 3B D5 B4 63 01 D1 F3 03 00 AA A8 16 40 F9 A8 83 1F F8 A0 83 1A F8 80 22 00 91 ?? ?? ?? ?? E8 23 00 91"},
-        {"lockItemRegistry",            "FD 7B BE A9 F4 4F 01 A9 FD 03 00 91 F4 03 00 AA 00 04 40 F9 F3 03 08 AA 1F 7D 00 A9 40 01 00 B4 ?? ?? ?? ?? 60 06 00 F9 E0 00 00 B4 88 02 40 F9 68 02 00 F9 88 00 00 B4"},
-        {"getCreativeCategory",         "09 28 40 F9 89 06 00 B4 20 01 67 9E 28 1C 40 92 00 58 20 0E 00 38 30 2E 0C 00 26 1E 9F 05 00 F1 ?? ?? ?? ?? 2A 05 00 51 4A 01 08 8A ?? ?? ?? ?? 3F 01 08 EB EA 03 08 AA ?? ?? ?? ?? 2A 1D 00 12"},
-        {"addChildGroup",               "FF 03 02 D1 FD 7B 02 A9 FC 6F 03 A9 FA 67 04 A9 F8 5F 05 A9 F6 57 06 A9 F4 4F 07 A9 FD 83 00 91 59 D0 3B D5 28 17 40 F9 A8 83 1F F8 08 1C 40 F9 ?? ?? ?? ?? F4 03 00 AA 00 00 01 91 F5 03 02 AA"},
-        {"newItemEntry",                "FF 83 01 D1 FD 7B 02 A9 F8 5F 03 A9 F6 57 04 A9 F4 4F 05 A9 FD 83 00 91 ?? ?? ?? ?? F3 03 00 AA 6A 74 91 52 E8 16 40 F9 CA 45 B7 72 F5 03 02 AA F6 03 01 AA A8 83 1F F8 14 24 42 A9 E0 07 00 F9"},
-        {"addCreativeItemEntry",        "FD 7B BE A9 F4 4F 01 A9 FD 03 00 91 ?? ?? ?? ?? F4 03 00 AA 20 A0 00 91 F3 03 01 AA ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 81 62 40 39 3F 00 20 6B ?? ?? ?? ?? 68 1A 40 F9 00 01 40 F9 ?? ?? ?? ??"},
-        {"updateNetIdMap",              "FF C3 01 D1 FD 7B 02 A9 F9 1B 00 F9 F8 5F 04 A9 F6 57 05 A9 F4 4F 06 A9 FD 83 00 91 56 D0 3B D5 F3 03 00 AA C8 16 40 F9 A8 83 1F F8 08 44 40 F9 ?? ?? ?? ?? 74 42 40 F9 ?? ?? ?? ?? E0 03 14 AA"},
-        {"itemInstanceNameCtor",        "FD 7B BE A9 F3 0B 00 F9 FD 03 00 91 F3 03 00 AA ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 68 02 00 F9 F3 0B 40 F9 FD 7B C2 A8 C0 03 5F D6 FF 43 03 D1 FD 7B 08 A9 FA 67 09 A9 F8 5F 0A A9 F6 57 0B A9"},
-        {"itemInstanceDtor",            "FD 7B BD A9 F5 0B 00 F9 F4 4F 02 A9 FD 03 00 91 F3 03 00 AA 00 3C 40 F9 ?? ?? ?? ?? ?? ?? ?? ?? 7F 3E 00 F9 68 02 00 F9 ?? ?? ?? ?? 08 00 40 F9 08 05 40 F9 00 01 3F D6 60 2A 40 F9 ?? ?? ?? ??"},
-        {"itemGetItem",                 "08 04 40 F9 68 00 00 B4 00 01 40 F9 C0 03 5F D6 E0 03 1F AA C0 03 5F D6 ?? ?? ?? ?? F5 0B 00 F9"},
-        {"itemGetFullItemName",         "00 A0 03 91 ?? ?? ?? 14 00 A0 03 91 C0 03 5F D6 ?? ?? ?? ?? FD 7B 03 A9"}
-    };
-
-    for (const auto& target : targets) {
-        uintptr_t addr = find_signature(base_addr, mod_size, target.sig);
-        if (addr != 0) {
-            LOGI("[+] Encontrado [%s] -> Offset: 0x%lx", target.name, addr - base_addr);
-        } else {
-            LOGI("[-] No encontrado: [%s]", target.name);
-        }
-    }
+    // Firma de addChildGroup que nos dio éxito en el escaneo anterior
+    const char* addChildGroup_sig = "FF 03 02 D1 FD 7B 02 A9 FC 6F 03 A9 FA 67 04 A9 F8 5F 05 A9 F6 57 06 A9 F4 4F 07 A9 FD 83 00 91 59 D0 3B D5 28 17 40 F9 A8 83 1F F8 08 1C 40 F9 ?? ?? ?? ?? F4 03 00 AA 00 00 01 91 F5 03 02 AA";
     
-    LOGI("[*] Escaneo de firmas finalizado.");
+    uintptr_t addr = find_signature(base_module_addr, mod_size, addChildGroup_sig);
+    if (addr != 0) {
+        LOGI("[+] addChildGroup encontrado en offset real: 0x%lx", addr - base_module_addr);
+        
+        // Configuramos el hook con subhook
+        addChildGroup_hook = subhook_new((void*)addr, (void*)hk_addChildGroup);
+        if (addChildGroup_hook != nullptr) {
+            original_addChildGroup = (addChildGroup_t)subhook_get_trampoline(addChildGroup_hook);
+            if (subhook_install(addChildGroup_hook) == 0) {
+                LOGI("[+] ¡Hook instalado exitosamente en addChildGroup!");
+            } else {
+                LOGE("[-] Error al instalar el hook con subhook_install");
+            }
+        }
+    } else {
+        LOGI("[-] No se pudo ubicar addChildGroup para el hook.");
+    }
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
-    LOGI("[*] Iniciando escáner de firmas...");
-    scan_mod_signatures();
+    LOGI("[*] Cargando módulo de pestañas...");
+    init_custom_tabs();
     return JNI_VERSION_1_6;
 }
