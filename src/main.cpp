@@ -105,7 +105,7 @@ void scan_tabs_directory(const std::string& tabs_dir_path) {
 
     struct dirent* entry;
     while ((entry = readdir(dir)) != NULL) {
-        std::string fname = entry->d_name;
+        std::string fname = entry$d_name;
         if (fname == "." || fname == "..") continue;
 
         std::string full_path = tabs_dir_path + "/" + fname;
@@ -156,7 +156,7 @@ std::string get_mojang_base_path() {
 }
 
 // ==========================================
-// ESCANEO INTELIGENTE (Invertido para el más reciente)
+// ESCANEO INTELIGENTE (Recorrido Inverso: Del más reciente al más antiguo)
 // ==========================================
 
 void search_and_load_active_world_tabs() {
@@ -167,7 +167,7 @@ void search_and_load_active_world_tabs() {
     }
 
     LOGI("[+] Ruta com.mojang detectada dinámicamente: %s", base_dir.c_str());
-    LOGI("[*] Buscando pestañas custom: Priorizando Behavior Packs globales y el mundo más reciente...");
+    LOGI("[*] Buscando pestañas custom: Priorizando BP globales y mundos en orden inverso (más reciente primero)...");
 
     // 1. Escanear Behavior Packs Globales
     std::string global_bp = base_dir + "behavior_packs/";
@@ -188,7 +188,7 @@ void search_and_load_active_world_tabs() {
         closedir(dir_global);
     }
 
-    // 2. Buscar el mundo más reciente en 'minecraftWorlds'
+    // 2. Recolectar todos los mundos y sus fechas
     std::string worlds_path = base_dir + "minecraftWorlds/";
     DIR* dir_worlds = opendir(worlds_path.c_str());
     if (!dir_worlds) {
@@ -215,27 +215,29 @@ void search_and_load_active_world_tabs() {
         return;
     }
 
-    // ORDEN INVERTIDO: Del más antiguo al más reciente (el último elemento vector.back() es el más reciente)
+    // Ordenar de más antiguo a más nuevo
     std::sort(worlds_list.begin(), worlds_list.end(), [](const WorldInfo& a, const WorldInfo& b) {
         return a.mod_time < b.mod_time;
     });
 
-    // Tomar ÚNICAMENTE el mundo más reciente (ahora sí, el último del vector)
-    const auto& latest_world = worlds_list.back();
-    LOGI("[*] Mundo más reciente detectado (Corregido): %s", latest_world.path.c_str());
+    // 3. Recorrer en ORDEN INVERSO (rbegin a rend) -> Empieza evaluando el mundo más reciente
+    for (auto it = worlds_list.rbegin(); it != worlds_list.rend(); ++it) {
+        const auto& world = *it;
+        std::string world_bp_path = world.path + "/behavior_packs/";
+        
+        DIR* dir_world_bp = opendir(world_bp_path.c_str());
+        if (!dir_world_bp) continue;
 
-    std::string world_bp_path = latest_world.path + "/behavior_packs/";
-    DIR* dir_world_bp = opendir(world_bp_path.c_str());
-    if (dir_world_bp) {
         struct dirent* pack_entry;
         while ((pack_entry = readdir(dir_world_bp)) != NULL) {
             std::string pack_name = pack_entry->d_name;
             if (pack_name == "." || pack_name == "..") continue;
 
             std::string tabs_folder = world_bp_path + pack_name + "/Tabs";
-            struct stat st;
-            if (stat(tabs_folder.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
-                LOGI("[+] ¡Carpeta 'Tabs' encontrada en el mundo activo -> Add-on [%s]", pack_name.c_str());
+            struct stat st_tab;
+            if (stat(tabs_folder.c_str(), &st_tab) == 0 && S_ISDIR(st_tab.st_mode)) {
+                LOGI("[+] ¡Carpeta 'Tabs' encontrada en el mundo evaluado [%s] -> Add-on [%s]", 
+                     world.path.c_str(), pack_name.c_str());
                 scan_tabs_directory(tabs_folder);
             }
         }
