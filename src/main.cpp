@@ -156,7 +156,7 @@ std::string get_mojang_base_path() {
 }
 
 // ==========================================
-// ESCANEO INTELIGENTE (Globales + Mundo Activo Reciente)
+// ESCANEO INTELIGENTE (Invertido para el más reciente)
 // ==========================================
 
 void search_and_load_active_world_tabs() {
@@ -215,14 +215,14 @@ void search_and_load_active_world_tabs() {
         return;
     }
 
-    // Ordenar del más reciente al más antiguo por fecha de modificación
+    // ORDEN INVERTIDO: Del más antiguo al más reciente (el último elemento vector.back() es el más reciente)
     std::sort(worlds_list.begin(), worlds_list.end(), [](const WorldInfo& a, const WorldInfo& b) {
-        return a.mod_time > b.mod_time;
+        return a.mod_time < b.mod_time;
     });
 
-    // Tomar ÚNICAMENTE el mundo más reciente
-    const auto& latest_world = worlds_list[0];
-    LOGI("[*] Mundo más reciente detectado: %s", latest_world.path.c_str());
+    // Tomar ÚNICAMENTE el mundo más reciente (ahora sí, el último del vector)
+    const auto& latest_world = worlds_list.back();
+    LOGI("[*] Mundo más reciente detectado (Corregido): %s", latest_world.path.c_str());
 
     std::string world_bp_path = latest_world.path + "/behavior_packs/";
     DIR* dir_world_bp = opendir(world_bp_path.c_str());
@@ -371,7 +371,6 @@ void init_framework() {
         A64HookFunction((void*)addr, (void*)hk_addCreativeItemEntry, (void**)&original_addCreativeItemEntry);
         LOGI("[+] ¡Framework de Pestañas Hookeado con éxito en ARM64!");
         
-        // Ejecutar escaneo inteligente con detección de versión y carpetas internal/external
         search_and_load_active_world_tabs();
     } else {
         LOGE("[-] No se pudo ubicar addCreativeItemEntry.");
