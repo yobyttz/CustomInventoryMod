@@ -122,12 +122,43 @@ void scan_tabs_directory(const std::string& tabs_dir_path) {
 }
 
 // ==========================================
+// DETECCIÓN DINÁMICA DE LEVILAUNCHER
+// ==========================================
+
+std::string get_mojang_base_path() {
+    std::string minecraft_root = "/storage/emulated/0/Android/media/org.levimc.launcher/minecraft/";
+    DIR* dir = opendir(minecraft_root.c_str());
+    if (!dir) return "";
+
+    std::string found_path = "";
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != NULL) {
+        std::string name = entry->d_name;
+        if (name == "." || name == "..") continue;
+
+        std::string candidate = minecraft_root + name + "/games/com.mojang/";
+        struct stat st;
+        if (stat(candidate.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+            found_path = candidate;
+            break; 
+        }
+    }
+    closedir(dir);
+    return found_path;
+}
+
+// ==========================================
 // ESCANEO INTELIGENTE (Globales + Mundo Activo Reciente)
 // ==========================================
 
 void search_and_load_active_world_tabs() {
-    std::string base_dir = "/storage/emulated/0/Android/media/org.levimc.launcher/minecraft/Minecraft_1.26.52.3/games/com.mojang/";
-    
+    std::string base_dir = get_mojang_base_path();
+    if (base_dir.empty()) {
+        LOGE("[-] No se pudo encontrar la ruta dinámica de com.mojang en LeviLauncher.");
+        return;
+    }
+
+    LOGI("[+] Ruta com.mojang detectada dinámicamente: %s", base_dir.c_str());
     LOGI("[*] Buscando pestañas custom: Priorizando Behavior Packs globales y el mundo más reciente...");
 
     // 1. Escanear Behavior Packs Globales
@@ -153,7 +184,7 @@ void search_and_load_active_world_tabs() {
     std::string worlds_path = base_dir + "minecraftWorlds/";
     DIR* dir_worlds = opendir(worlds_path.c_str());
     if (!dir_worlds) {
-        LOGE("[-] No se pudo abrir la carpeta minecraftWorlds.");
+        LOGE("[-] No se pudo abrir la carpeta minecraftWorlds en: %s", worlds_path.c_str());
         return;
     }
 
@@ -172,7 +203,7 @@ void search_and_load_active_world_tabs() {
     closedir(dir_worlds);
 
     if (worlds_list.empty()) {
-        LOGI("[*] No se encontraron mundos.");
+        LOGI("[*] No se encontraron mundos en minecraftWorlds.");
         return;
     }
 
@@ -332,7 +363,7 @@ void init_framework() {
         A64HookFunction((void*)addr, (void*)hk_addCreativeItemEntry, (void**)&original_addCreativeItemEntry);
         LOGI("[+] ¡Framework de Pestañas Hookeado con éxito en ARM64!");
         
-        // Escanear global y el mundo activo reciente de forma inteligente
+        // Ejecutar escaneo inteligente con detección de versión dinámica
         search_and_load_active_world_tabs();
     } else {
         LOGE("[-] No se pudo ubicar addCreativeItemEntry.");
