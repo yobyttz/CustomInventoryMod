@@ -8,16 +8,8 @@
 #include <stdarg.h>
 #include <vector>
 #include <string>
-#include <sstream>
-#include <fstream>
-#include <dirent.h>
-#include <sys/stat.h>
-#include <algorithm>
 
 #include "And64InlineHook.hpp"
-#include "json.hpp"
-
-using json = nlohmann::json;
 
 #define TAG "CustomTabsFramework"
 const char* LOG_FILE_PATH = "/storage/emulated/0/Download/mod_debug.txt";
@@ -43,7 +35,7 @@ void write_log(const char* fmt, ...) {
 #define LOGE(...) write_log("[ERROR] " __VA_ARGS__)
 
 // ==========================================
-// ESTRUCTURAS DE DATOS DE PESTAÑAS CUSTOM
+// ESTRUCTURAS DE DATOS DIRECTAS EN C++
 // ==========================================
 
 struct CustomTab {
@@ -53,196 +45,31 @@ struct CustomTab {
     std::vector<std::string> items;
 };
 
-struct WorldInfo {
-    std::string path;
-    time_t mod_time;
-};
-
 std::vector<CustomTab> g_loaded_custom_tabs;
 bool g_tabs_loaded = false;
 
 // ==========================================
-// CARGADOR Y PARSER DE ARCHIVOS JSON (Tabs/)
+// REGISTRO HARDCODED DE PESTAÑAS (SIN JSON)
 // ==========================================
 
-void parse_tab_json_file(const std::string& filepath) {
-    std::ifstream file(filepath);
-    if (!file.is_open()) {
-        LOGE("[-] No se pudo abrir el archivo JSON: %s", filepath.c_str());
-        return;
-    }
+void load_hardcoded_tabs() {
+    LOGI("[*] Cargando pestañas custom directamente desde el código C++...");
 
-    try {
-        json j;
-        file >> j;
+    // Puedes agregar todas las pestañas que quieras aquí mismo de forma nativa
+    CustomTab custom_weapons_tab;
+    custom_weapons_tab.id = "mi_mod:weapons_tab";
+    custom_weapons_tab.title = "Armas Especiales";
+    custom_weapons_tab.icon = "minecraft:diamond_sword";
+    custom_weapons_tab.items = {
+        "minecraft:diamond_sword",
+        "minecraft:netherite_sword",
+        "minecraft:trident"
+    };
 
-        if (j.contains("custom_tabs") && j["custom_tabs"].is_array()) {
-            for (const auto& tab_json : j["custom_tabs"]) {
-                CustomTab tab;
-                tab.id = tab_json.value("id", "custom:unknown_tab");
-                tab.title = tab_json.value("title", "Pestaña Custom");
-                tab.icon = tab_json.value("icon", "minecraft:dirt");
+    g_loaded_custom_tabs.push_back(custom_weapons_tab);
 
-                if (tab_json.contains("items") && tab_json["items"].is_array()) {
-                    for (const auto& item_json : tab_json["items"]) {
-                        tab.items.push_back(item_json.get<std::string>());
-                    }
-                }
-
-                g_loaded_custom_tabs.push_back(tab);
-                LOGI("[+] Pestaña cargada: '%s' con %zu ítems (Desde: %s)", 
-                     tab.title.c_str(), tab.items.size(), filepath.c_str());
-            }
-        }
-    } catch (const std::exception& e) {
-        LOGE("[-] Error al parsear JSON (%s): %s", filepath.c_str(), e.what());
-    }
-}
-
-void scan_tabs_directory(const std::string& tabs_dir_path) {
-    DIR* dir = opendir(tabs_dir_path.c_str());
-    if (!dir) return;
-
-    struct dirent* entry;
-    while ((entry = readdir(dir)) != NULL) {
-        std::string fname = entry->d_name; // CORREGIDO AQUÍ (entry->d_name)
-        if (fname == "." || fname == "..") continue;
-
-        std::string full_path = tabs_dir_path + "/" + fname;
-        
-        struct stat st;
-        if (stat(full_path.c_str(), &st) == 0) {
-            if (S_ISREG(st.st_mode) && fname.find(".json") != std::string::npos) {
-                LOGI("[*] Procesando archivo de pestaña: %s", full_path.c_str());
-                parse_tab_json_file(full_path);
-            }
-        }
-    }
-    closedir(dir);
-}
-
-// ==========================================
-// DETECCIÓN DINÁMICA DE LEVILAUNCHER (Con internal/external)
-// ==========================================
-
-std::string get_mojang_base_path() {
-    std::string minecraft_root = "/storage/emulated/0/Android/media/org.levimc.launcher/minecraft/";
-    DIR* dir = opendir(minecraft_root.c_str());
-    if (!dir) return "";
-
-    std::string found_path = "";
-    struct dirent* entry;
-    while ((entry = readdir(dir)) != NULL) {
-        std::string name = entry->d_name;
-        if (name == "." || name == "..") continue;
-
-        std::string version_path = minecraft_root + name + "/";
-        
-        std::string candidate_internal = version_path + "internal/games/com.mojang/";
-        std::string candidate_external = version_path + "external/games/com.mojang/";
-
-        struct stat st;
-        if (stat(candidate_internal.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
-            found_path = candidate_internal;
-            break;
-        }
-        if (stat(candidate_external.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
-            found_path = candidate_external;
-            break;
-        }
-    }
-    closedir(dir);
-    return found_path;
-}
-
-// ==========================================
-// ESCANEO INTELIGENTE (Recorrido Inverso: Del más reciente al más antiguo)
-// ==========================================
-
-void search_and_load_active_world_tabs() {
-    std::string base_dir = get_mojang_base_path();
-    if (base_dir.empty()) {
-        LOGE("[-] No se pudo encontrar la ruta dinámica de com.mojang en LeviLauncher.");
-        return;
-    }
-
-    LOGI("[+] Ruta com.mojang detectada dinámicamente: %s", base_dir.c_str());
-    LOGI("[*] Buscando pestañas custom: Priorizando BP globales y mundos en orden inverso (más reciente primero)...");
-
-    // 1. Escanear Behavior Packs Globales
-    std::string global_bp = base_dir + "behavior_packs/";
-    DIR* dir_global = opendir(global_bp.c_str());
-    if (dir_global) {
-        struct dirent* entry;
-        while ((entry = readdir(dir_global)) != NULL) {
-            std::string pack_name = entry->d_name;
-            if (pack_name == "." || pack_name == "..") continue;
-
-            std::string tabs_folder = global_bp + pack_name + "/Tabs";
-            struct stat st;
-            if (stat(tabs_folder.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
-                LOGI("[+] ¡Carpeta 'Tabs' encontrada en BP global: %s", pack_name.c_str());
-                scan_tabs_directory(tabs_folder);
-            }
-        }
-        closedir(dir_global);
-    }
-
-    // 2. Recolectar todos los mundos y sus fechas
-    std::string worlds_path = base_dir + "minecraftWorlds/";
-    DIR* dir_worlds = opendir(worlds_path.c_str());
-    if (!dir_worlds) {
-        LOGE("[-] No se pudo abrir la carpeta minecraftWorlds en: %s", worlds_path.c_str());
-        return;
-    }
-
-    std::vector<WorldInfo> worlds_list;
-    struct dirent* world_entry;
-    while ((world_entry = readdir(dir_worlds)) != NULL) {
-        std::string world_folder = world_entry->d_name;
-        if (world_folder == "." || world_folder == "..") continue;
-
-        std::string full_world_path = worlds_path + world_folder;
-        struct stat st;
-        if (stat(full_world_path.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
-            worlds_list.push_back({full_world_path, st.st_mtime});
-        }
-    }
-    closedir(dir_worlds);
-
-    if (worlds_list.empty()) {
-        LOGI("[*] No se encontraron mundos en minecraftWorlds.");
-        return;
-    }
-
-    // Ordenar de más antiguo a más nuevo
-    std::sort(worlds_list.begin(), worlds_list.end(), [](const WorldInfo& a, const WorldInfo& b) {
-        return a.mod_time < b.mod_time;
-    });
-
-    // 3. Recorrer en ORDEN INVERSO (rbegin a rend) -> Empieza evaluando el mundo más reciente
-    for (auto it = worlds_list.rbegin(); it != worlds_list.rend(); ++it) {
-        const auto& world = *it;
-        std::string world_bp_path = world.path + "/behavior_packs/";
-        
-        DIR* dir_world_bp = opendir(world_bp_path.c_str());
-        if (!dir_world_bp) continue;
-
-        struct dirent* pack_entry;
-        while ((pack_entry = readdir(dir_world_bp)) != NULL) {
-            std::string pack_name = pack_entry->d_name;
-            if (pack_name == "." || pack_name == "..") continue;
-
-            std::string tabs_folder = world_bp_path + pack_name + "/Tabs";
-            struct stat st_tab;
-            if (stat(tabs_folder.c_str(), &st_tab) == 0 && S_ISDIR(st_tab.st_mode)) {
-                LOGI("[+] ¡Carpeta 'Tabs' encontrada en el mundo evaluado [%s] -> Add-on [%s]", 
-                     world.path.c_str(), pack_name.c_str());
-                scan_tabs_directory(tabs_folder);
-            }
-        }
-        closedir(dir_world_bp);
-    }
+    LOGI("[+] Pestaña '%s' registrada en C++ con %zu ítems.", 
+         custom_weapons_tab.title.c_str(), custom_weapons_tab.items.size());
 }
 
 // ==========================================
@@ -258,12 +85,12 @@ void* hk_addCreativeItemEntry(void* _this, void* itemEntry) {
     void* result = original_addCreativeItemEntry(_this, itemEntry);
 
     if (!g_tabs_loaded && !g_loaded_custom_tabs.empty()) {
-        LOGI("[*] Inyectando %zu pestañas custom en el registro creativo...", g_loaded_custom_tabs.size());
+        LOGI("[*] Inyectando %zu pestañas custom nativas en el registro creativo...", g_loaded_custom_tabs.size());
         
         for (const auto& tab : g_loaded_custom_tabs) {
-            LOGI("[+] Registrando items para la pestaña: '%s' (Icono: %s)", tab.title.c_str(), tab.icon.c_str());
+            LOGI("[+] Inyectando pestaña: '%s' (Icono: %s)", tab.title.c_str(), tab.icon.c_str());
             for (const auto& item_id : tab.items) {
-                LOGI("    -> Ítem registrado en pestaña: %s", item_id.c_str());
+                LOGI("    -> Ítem inyectado: %s", item_id.c_str());
             }
         }
         g_tabs_loaded = true;
@@ -350,7 +177,7 @@ uintptr_t find_signature(uintptr_t base, size_t size, const char* sig) {
 void init_framework() {
     FILE* f = fopen(LOG_FILE_PATH, "w");
     if (f != NULL) {
-        fprintf(f, "=== INICIO: Custom Tabs Framework ARM64 ===\n");
+        fprintf(f, "=== INICIO: Custom Tabs Framework ARM64 (Nativo) ===\n");
         fclose(f);
     }
 
@@ -371,16 +198,17 @@ void init_framework() {
         LOGI("[+] addCreativeItemEntry encontrado en offset real: 0x%lx", addr - base_module_addr);
         
         A64HookFunction((void*)addr, (void*)hk_addCreativeItemEntry, (void**)&original_addCreativeItemEntry);
-        LOGI("[+] ¡Framework de Pestañas Hookeado con éxito en ARM64!");
+        LOGI("[+] ¡Framework nativo de Pestañas Hookeado con éxito en ARM64!");
         
-        search_and_load_active_world_tabs();
+        // Cargar las pestañas directamente en memoria sin leer mundos
+        load_hardcoded_tabs();
     } else {
         LOGE("[-] No se pudo ubicar addCreativeItemEntry.");
     }
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
-    LOGI("[*] Cargando Framework de Pestañas Custom...");
+    LOGI("[*] Cargando Framework Nativo de Pestañas Custom...");
     init_framework();
     return JNI_VERSION_1_6;
 }
