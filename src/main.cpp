@@ -8,6 +8,7 @@
 #include <stdarg.h>
 #include <vector>
 #include <string>
+#include <sstream>   // <--- ¡INCLUSIÓN NECESARIA AÑADIDA AQUÍ!
 
 #include "And64InlineHook.hpp"
 
@@ -55,7 +56,6 @@ bool g_tabs_loaded = false;
 void load_hardcoded_tabs() {
     LOGI("[*] Cargando pestañas custom directamente desde el código C++...");
 
-    // Puedes agregar todas las pestañas que quieras aquí mismo de forma nativa
     CustomTab custom_weapons_tab;
     custom_weapons_tab.id = "mi_mod:weapons_tab";
     custom_weapons_tab.title = "Armas Especiales";
@@ -200,7 +200,6 @@ void init_framework() {
         A64HookFunction((void*)addr, (void*)hk_addCreativeItemEntry, (void**)&original_addCreativeItemEntry);
         LOGI("[+] ¡Framework nativo de Pestañas Hookeado con éxito en ARM64!");
         
-        // Cargar las pestañas directamente en memoria sin leer mundos
         load_hardcoded_tabs();
     } else {
         LOGE("[-] No se pudo ubicar addCreativeItemEntry.");
