@@ -12,6 +12,7 @@
 #include <fstream>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <algorithm>
 
 #include "And64InlineHook.hpp"
 #include "json.hpp"
@@ -50,6 +51,11 @@ struct CustomTab {
     std::string title;
     std::string icon;
     std::vector<std::string> items;
+};
+
+struct WorldInfo {
+    std::string path;
+    time_t mod_time;
 };
 
 std::vector<CustomTab> g_loaded_custom_tabs;
@@ -113,6 +119,89 @@ void scan_tabs_directory(const std::string& tabs_dir_path) {
         }
     }
     closedir(dir);
+}
+
+// ==========================================
+// ESCANEO INTELIGENTE (Globales + Mundo Activo Reciente)
+// ==========================================
+
+void search_and_load_active_world_tabs() {
+    std::string base_dir = "/storage/emulated/0/Android/media/org.levimc.launcher/minecraft/Minecraft_1.26.52.3/games/com.mojang/";
+    
+    LOGI("[*] Buscando pestañas custom: Priorizando Behavior Packs globales y el mundo más reciente...");
+
+    // 1. Escanear Behavior Packs Globales
+    std::string global_bp = base_dir + "behavior_packs/";
+    DIR* dir_global = opendir(global_bp.c_str());
+    if (dir_global) {
+        struct dirent* entry;
+        while ((entry = readdir(dir_global)) != NULL) {
+            std::string pack_name = entry->d_name;
+            if (pack_name == "." || pack_name == "..") continue;
+
+            std::string tabs_folder = global_bp + pack_name + "/Tabs";
+            struct stat st;
+            if (stat(tabs_folder.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+                LOGI("[+] ¡Carpeta 'Tabs' encontrada en BP global: %s", pack_name.c_str());
+                scan_tabs_directory(tabs_folder);
+            }
+        }
+        closedir(dir_global);
+    }
+
+    // 2. Buscar el mundo más reciente en 'minecraftWorlds'
+    std::string worlds_path = base_dir + "minecraftWorlds/";
+    DIR* dir_worlds = opendir(worlds_path.c_str());
+    if (!dir_worlds) {
+        LOGE("[-] No se pudo abrir la carpeta minecraftWorlds.");
+        return;
+    }
+
+    std::vector<WorldInfo> worlds_list;
+    struct dirent* world_entry;
+    while ((world_entry = readdir(dir_worlds)) != NULL) {
+        std::string world_folder = world_entry->d_name;
+        if (world_folder == "." || world_folder == "..") continue;
+
+        std::string full_world_path = worlds_path + world_folder;
+        struct stat st;
+        if (stat(full_world_path.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+            worlds_list.push_back({full_world_path, st.st_mtime});
+        }
+    }
+    closedir(dir_worlds);
+
+    if (worlds_list.empty()) {
+        LOGI("[*] No se encontraron mundos.");
+        return;
+    }
+
+    // Ordenar del más reciente al más antiguo por fecha de modificación
+    std::sort(worlds_list.begin(), worlds_list.end(), [](const WorldInfo& a, const WorldInfo& b) {
+        return a.mod_time > b.mod_time;
+    });
+
+    // Tomar ÚNICAMENTE el mundo más reciente
+    const auto& latest_world = worlds_list[0];
+    LOGI("[*] Mundo más reciente detectado: %s", latest_world.path.c_str());
+
+    std::string world_bp_path = latest_world.path + "/behavior_packs/";
+    DIR* dir_world_bp = opendir(world_bp_path.c_str());
+    if (dir_world_bp) {
+        struct dirent* pack_entry;
+        while ((pack_entry = readdir(dir_world_bp)) != NULL) {
+            std::string pack_name = pack_entry->d_name;
+            if (pack_name == "." || pack_name == "..") continue;
+
+            std::string tabs_folder = world_bp_path + pack_name + "/Tabs";
+            struct stat st;
+            if (stat(tabs_folder.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+                LOGI("[+] ¡Carpeta 'Tabs' encontrada en el mundo activo -> Add-on [%s]", pack_name.c_str());
+                scan_tabs_directory(tabs_folder);
+            }
+        }
+        closedir(dir_world_bp);
+    }
 }
 
 // ==========================================
@@ -242,6 +331,9 @@ void init_framework() {
         
         A64HookFunction((void*)addr, (void*)hk_addCreativeItemEntry, (void**)&original_addCreativeItemEntry);
         LOGI("[+] ¡Framework de Pestañas Hookeado con éxito en ARM64!");
+        
+        // Escanear global y el mundo activo reciente de forma inteligente
+        search_and_load_active_world_tabs();
     } else {
         LOGE("[-] No se pudo ubicar addCreativeItemEntry.");
     }
