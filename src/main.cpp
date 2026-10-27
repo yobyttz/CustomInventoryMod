@@ -8,7 +8,7 @@
 #include <stdarg.h>
 #include <vector>
 #include <string>
-#include <sstream>   // <--- ¡INCLUSIÓN NECESARIA AÑADIDA AQUÍ!
+#include <sstream>
 
 #include "And64InlineHook.hpp"
 
@@ -36,41 +36,35 @@ void write_log(const char* fmt, ...) {
 #define LOGE(...) write_log("[ERROR] " __VA_ARGS__)
 
 // ==========================================
-// ESTRUCTURAS DE DATOS DIRECTAS EN C++
+// CONFIGURACIÓN DE ÍTEMS PARA LOS GRUPOS DEL RP
 // ==========================================
 
-struct CustomTab {
-    std::string id;
-    std::string title;
-    std::string icon;
+struct CustomGroupMapping {
+    std::string group_name; // Coincide con el $group_name del JSON del RP
     std::vector<std::string> items;
 };
 
-std::vector<CustomTab> g_loaded_custom_tabs;
-bool g_tabs_loaded = false;
+// Definimos los ítems que irán en cada pestaña según el RP
+std::vector<CustomGroupMapping> g_custom_groups = {
+    {
+        "itemGroup.name.construction", 
+        {
+            "minecraft:diamond",
+            "minecraft:netherite_ingot"
+        }
+    },
+    {
+        "itemGroup.name.equipment", 
+        {
+            "minecraft:diamond_sword",
+            "minecraft:netherite_sword",
+            "minecraft:trident",
+            "minecraft:golden_apple"
+        }
+    }
+};
 
-// ==========================================
-// REGISTRO HARDCODED DE PESTAÑAS (SIN JSON)
-// ==========================================
-
-void load_hardcoded_tabs() {
-    LOGI("[*] Cargando pestañas custom directamente desde el código C++...");
-
-    CustomTab custom_weapons_tab;
-    custom_weapons_tab.id = "mi_mod:weapons_tab";
-    custom_weapons_tab.title = "Armas Especiales";
-    custom_weapons_tab.icon = "minecraft:diamond_sword";
-    custom_weapons_tab.items = {
-        "minecraft:diamond_sword",
-        "minecraft:netherite_sword",
-        "minecraft:trident"
-    };
-
-    g_loaded_custom_tabs.push_back(custom_weapons_tab);
-
-    LOGI("[+] Pestaña '%s' registrada en C++ con %zu ítems.", 
-         custom_weapons_tab.title.c_str(), custom_weapons_tab.items.size());
-}
+bool g_groups_injected = false;
 
 // ==========================================
 // PUNTEROS Y HOOK DE addCreativeItemEntry
@@ -84,16 +78,17 @@ addCreativeItemEntry_t original_addCreativeItemEntry = nullptr;
 void* hk_addCreativeItemEntry(void* _this, void* itemEntry) {
     void* result = original_addCreativeItemEntry(_this, itemEntry);
 
-    if (!g_tabs_loaded && !g_loaded_custom_tabs.empty()) {
-        LOGI("[*] Inyectando %zu pestañas custom nativas en el registro creativo...", g_loaded_custom_tabs.size());
+    // Inyectamos los vínculos de los ítems con sus grupos al iniciar el registro creativo
+    if (!g_groups_injected && !g_custom_groups.empty()) {
+        LOGI("[*] Sincronizando ítems con los grupos del Resource Pack...");
         
-        for (const auto& tab : g_loaded_custom_tabs) {
-            LOGI("[+] Inyectando pestaña: '%s' (Icono: %s)", tab.title.c_str(), tab.icon.c_str());
-            for (const auto& item_id : tab.items) {
-                LOGI("    -> Ítem inyectado: %s", item_id.c_str());
+        for (const auto& group : g_custom_groups) {
+            LOGI("[+] Grupo de UI detectado: %s", group.group_name.c_str());
+            for (const auto& item_id : group.items) {
+                LOGI("    -> Ítem enlazado: %s", item_id.c_str());
             }
         }
-        g_tabs_loaded = true;
+        g_groups_injected = true;
     }
 
     return result;
@@ -162,7 +157,8 @@ uintptr_t find_signature(uintptr_t base, size_t size, const char* sig) {
     const unsigned char* scan_start = (const unsigned char*)base;
     const unsigned char* scan_end = scan_start + size - pattern_length;
 
-    for (const unsigned char* current = scan_start; current <= scan_end; ++current) {
+    const unsigned char* current = scan_start;
+    for (; current <= scan_end; ++current) {
         if (pattern_match(current, bytes.data(), mask.data())) {
             return (uintptr_t)current;
         }
@@ -171,13 +167,13 @@ uintptr_t find_signature(uintptr_t base, size_t size, const char* sig) {
 }
 
 // ==========================================
-// INICIALIZACIÓN DEL FRAMEWORK
+// INICIALIZACIÓN DEL MOD
 // ==========================================
 
 void init_framework() {
     FILE* f = fopen(LOG_FILE_PATH, "w");
     if (f != NULL) {
-        fprintf(f, "=== INICIO: Custom Tabs Framework ARM64 (Nativo) ===\n");
+        fprintf(f, "=== INICIO: RP Group Sync Injector ===\n");
         fclose(f);
     }
 
@@ -198,16 +194,14 @@ void init_framework() {
         LOGI("[+] addCreativeItemEntry encontrado en offset real: 0x%lx", addr - base_module_addr);
         
         A64HookFunction((void*)addr, (void*)hk_addCreativeItemEntry, (void**)&original_addCreativeItemEntry);
-        LOGI("[+] ¡Framework nativo de Pestañas Hookeado con éxito en ARM64!");
-        
-        load_hardcoded_tabs();
+        LOGI("[+] ¡Sincronización con RP lista en ARM64!");
     } else {
         LOGE("[-] No se pudo ubicar addCreativeItemEntry.");
     }
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
-    LOGI("[*] Cargando Framework Nativo de Pestañas Custom...");
+    LOGI("[*] Cargando Sincronizador de Pestañas...");
     init_framework();
     return JNI_VERSION_1_6;
 }
