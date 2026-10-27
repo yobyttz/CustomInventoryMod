@@ -105,7 +105,7 @@ void scan_tabs_directory(const std::string& tabs_dir_path) {
 
     struct dirent* entry;
     while ((entry = readdir(dir)) != NULL) {
-        std::string fname = entry$d_name;
+        std::string fname = entry->d_name; // CORREGIDO AQUÍ (entry->d_name)
         if (fname == "." || fname == "..") continue;
 
         std::string full_path = tabs_dir_path + "/" + fname;
