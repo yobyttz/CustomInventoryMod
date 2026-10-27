@@ -122,7 +122,7 @@ void scan_tabs_directory(const std::string& tabs_dir_path) {
 }
 
 // ==========================================
-// DETECCIÓN DINÁMICA DE LEVILAUNCHER
+// DETECCIÓN DINÁMICA DE LEVILAUNCHER (Con internal/external)
 // ==========================================
 
 std::string get_mojang_base_path() {
@@ -136,11 +136,19 @@ std::string get_mojang_base_path() {
         std::string name = entry->d_name;
         if (name == "." || name == "..") continue;
 
-        std::string candidate = minecraft_root + name + "/games/com.mojang/";
+        std::string version_path = minecraft_root + name + "/";
+        
+        std::string candidate_internal = version_path + "internal/games/com.mojang/";
+        std::string candidate_external = version_path + "external/games/com.mojang/";
+
         struct stat st;
-        if (stat(candidate.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
-            found_path = candidate;
-            break; 
+        if (stat(candidate_internal.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+            found_path = candidate_internal;
+            break;
+        }
+        if (stat(candidate_external.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+            found_path = candidate_external;
+            break;
         }
     }
     closedir(dir);
@@ -363,7 +371,7 @@ void init_framework() {
         A64HookFunction((void*)addr, (void*)hk_addCreativeItemEntry, (void**)&original_addCreativeItemEntry);
         LOGI("[+] ¡Framework de Pestañas Hookeado con éxito en ARM64!");
         
-        // Ejecutar escaneo inteligente con detección de versión dinámica
+        // Ejecutar escaneo inteligente con detección de versión y carpetas internal/external
         search_and_load_active_world_tabs();
     } else {
         LOGE("[-] No se pudo ubicar addCreativeItemEntry.");
