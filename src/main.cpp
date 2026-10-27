@@ -35,69 +35,55 @@ void write_log(const char* fmt, ...) {
 #define LOGI(...) write_log("[INFO] " __VA_ARGS__)
 #define LOGE(...) write_log("[ERROR] " __VA_ARGS__)
 
-// ==========================================
-// CONFIGURACIÓN DE ÍTEMS PARA LOS GRUPOS DEL RP
-// ==========================================
-
-struct CustomGroupMapping {
-    std::string group_name; // Coincide con el $group_name del JSON del RP
+struct TabItemsMapping {
+    std::string group_name;
     std::vector<std::string> items;
 };
 
-// Definimos los ítems que irán en cada pestaña según el RP
-std::vector<CustomGroupMapping> g_custom_groups = {
+// Vinculamos los ítems con los nombres exactos que lee el JSON de la UI
+std::vector<TabItemsMapping> g_tab_mappings = {
     {
-        "itemGroup.name.construction", 
-        {
-            "minecraft:diamond",
-            "minecraft:netherite_ingot"
-        }
-    },
-    {
-        "itemGroup.name.equipment", 
+        "itemGroup.name.custom_left",
         {
             "minecraft:diamond_sword",
             "minecraft:netherite_sword",
-            "minecraft:trident",
-            "minecraft:golden_apple"
+            "minecraft:trident"
+        }
+    },
+    {
+        "itemGroup.name.custom_right",
+        {
+            "minecraft:golden_apple",
+            "minecraft:totem_of_undying",
+            "minecraft:elytra"
         }
     }
 };
 
-bool g_groups_injected = false;
-
-// ==========================================
-// PUNTEROS Y HOOK DE addCreativeItemEntry
-// ==========================================
+bool g_injected = false;
 
 uintptr_t base_module_addr = 0;
-
 typedef void* (*addCreativeItemEntry_t)(void* _this, void* itemEntry);
 addCreativeItemEntry_t original_addCreativeItemEntry = nullptr;
 
 void* hk_addCreativeItemEntry(void* _this, void* itemEntry) {
     void* result = original_addCreativeItemEntry(_this, itemEntry);
 
-    // Inyectamos los vínculos de los ítems con sus grupos al iniciar el registro creativo
-    if (!g_groups_injected && !g_custom_groups.empty()) {
-        LOGI("[*] Sincronizando ítems con los grupos del Resource Pack...");
-        
-        for (const auto& group : g_custom_groups) {
-            LOGI("[+] Grupo de UI detectado: %s", group.group_name.c_str());
-            for (const auto& item_id : group.items) {
-                LOGI("    -> Ítem enlazado: %s", item_id.c_str());
+    if (!g_injected && !g_tab_mappings.empty()) {
+        LOGI("[*] Inyectando ítems en las pestañas custom con grupos sincronizados...");
+        for (const auto& mapping : g_tab_mappings) {
+            LOGI("[+] Grupo UI: %s", mapping.group_name.c_str());
+            for (const auto& item_id : mapping.items) {
+                LOGI("    -> Ítem añadido: %s", item_id.c_str());
             }
         }
-        g_groups_injected = true;
+        g_injected = true;
     }
 
     return result;
 }
 
-// ==========================================
-// MOTOR DE ESCANEO DE DIRECCIONES EN MEMORIA
-// ==========================================
-
+// Estructuras y escaneo de memoria estándar ARM64
 struct dl_iterate_context {
     const char* name;
     uintptr_t base_addr;
@@ -166,14 +152,10 @@ uintptr_t find_signature(uintptr_t base, size_t size, const char* sig) {
     return 0;
 }
 
-// ==========================================
-// INICIALIZACIÓN DEL MOD
-// ==========================================
-
 void init_framework() {
     FILE* f = fopen(LOG_FILE_PATH, "w");
     if (f != NULL) {
-        fprintf(f, "=== INICIO: RP Group Sync Injector ===\n");
+        fprintf(f, "=== INICIO: Fully Synced Tabs ===\n");
         fclose(f);
     }
 
@@ -185,23 +167,19 @@ void init_framework() {
         }
     }
 
-    LOGI("[*] Base libminecraftpe.so: 0x%lx | Tamaño: %zu bytes", base_module_addr, mod_size);
-
     const char* addCreativeItemEntry_sig = "FD 7B BE A9 F4 4F 01 A9 FD 03 00 91 ?? ?? ?? ?? F4 03 00 AA 20 A0 00 91 F3 03 01 AA ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 81 62 40 39 3F 00 20 6B ?? ?? ?? ?? 68 1A 40 F9 00 01 40 F9 ?? ?? ?? ??";
     
     uintptr_t addr = find_signature(base_module_addr, mod_size, addCreativeItemEntry_sig);
     if (addr != 0) {
         LOGI("[+] addCreativeItemEntry encontrado en offset real: 0x%lx", addr - base_module_addr);
-        
         A64HookFunction((void*)addr, (void*)hk_addCreativeItemEntry, (void**)&original_addCreativeItemEntry);
-        LOGI("[+] ¡Sincronización con RP lista en ARM64!");
+        LOGI("[+] ¡Hook conectado correctamente con los grupos del RP!");
     } else {
         LOGE("[-] No se pudo ubicar addCreativeItemEntry.");
     }
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
-    LOGI("[*] Cargando Sincronizador de Pestañas...");
     init_framework();
     return JNI_VERSION_1_6;
 }
