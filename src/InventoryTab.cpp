@@ -1,7 +1,7 @@
 #include "InventoryTab.hpp"
 #include "Signatures.hpp"
 
-#include <pl/modmenu/ModuleBuilder.hpp>
+#include <pl/ModMenu.hpp>
 #include <pl/memory/Hook.hpp>
 #include <cstdio>
 #include <cstdarg>
