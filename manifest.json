@@ -1,0 +1,10 @@
+{
+  "type": "preload-native",
+  "name": "Custom Inventory Tab",
+  "author": "TuNombre",
+  "version": "0.1.0",
+  "entry": "libinventorytab.so",
+  "minecraft_versions": [],
+  "overwrite_files": [],
+  "overwrite_folders": []
+}
