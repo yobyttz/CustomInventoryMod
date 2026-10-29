@@ -37,5 +37,5 @@ jobs:
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: libbackpack
-        path: build/libbackpack.so
+        name: inventorytab
+        path: build/libinventorytab.so
