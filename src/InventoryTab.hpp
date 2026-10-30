@@ -1,4 +1,7 @@
 #pragma once
+
+#include "EngineApi.hpp"
+#include "CreativeTab.hpp"
 #include <pl/Mod.hpp>
 
 namespace inventorytab {
@@ -13,11 +16,12 @@ public:
     bool unload(pl::mod::ModContext& ctx);
 
 private:
-    bool mEnabled = false;
+    EngineApi mApi;
+    CreativeTab mTab{mApi};
+    bool mHookInstalled{false};
 
-    void registerModule();
-    void installHooks();
-    void uninstallHooks();
+    static InventoryTabMod* sInstance;
+    static void addLooseDetour(void* initializer, void const* worldVersion);
 };
 
-}
+} // namespace inventorytab
