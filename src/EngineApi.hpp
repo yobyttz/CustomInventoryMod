@@ -10,12 +10,11 @@ struct HashedStringExact {
     std::uint64_t hash{};
     std::string text;
     void* lastMatch{nullptr};
-
     explicit HashedStringExact(std::string value);
 };
 
 struct EngineApi {
-    using LockItemRegistryFn = std::shared_ptr<void> (*)(void* initializer);
+    // firmas alineadas al motor (Android arm64)
     using GetCreativeCategoryFn = void* (*)(void* registry, std::uint8_t category);
     using AddChildGroupFn = void* (*)(void* category, HashedStringExact& name, void* iconItemInstance);
     using NewItemEntryFn = void* (*)(void* registry, std::uint32_t netId, void* itemInstance);
@@ -24,13 +23,11 @@ struct EngineApi {
     using ItemInstanceNameCtorFn = void (*)(void* self, char const* name, std::size_t len, int count, int aux, void* userData);
     using ItemInstanceDtorFn = void (*)(void* self);
     using ItemGetItemFn = void* (*)(void* itemInstance);
-    using ItemGetFullItemNameFn = std::string const& (*)(void* item);
     using AddLooseCreativeItemsFn = void (*)(void* initializer, void const* worldVersion);
 
     void* addLooseCreativeItemsTarget{nullptr};
     AddLooseCreativeItemsFn addLooseCreativeItemsOriginal{nullptr};
 
-    LockItemRegistryFn lockItemRegistry{nullptr};
     GetCreativeCategoryFn getCreativeCategory{nullptr};
     AddChildGroupFn addChildGroup{nullptr};
     NewItemEntryFn newItemEntry{nullptr};
@@ -39,7 +36,6 @@ struct EngineApi {
     ItemInstanceNameCtorFn itemInstanceNameCtor{nullptr};
     ItemInstanceDtorFn itemInstanceDtor{nullptr};
     ItemGetItemFn itemGetItem{nullptr};
-    ItemGetFullItemNameFn itemGetFullItemName{nullptr};
 
     bool resolve();
     void clear();
