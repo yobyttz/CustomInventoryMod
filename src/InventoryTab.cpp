@@ -1,184 +1,107 @@
 #include "InventoryTab.hpp"
-#include "Signatures.hpp"
 
-#include <pl/ModMenu.hpp>
 #include <pl/memory/Hook.hpp>
+#include <android/log.h>
 #include <cstdio>
 #include <cstdarg>
-#include <android/log.h>
 
 namespace inventorytab {
 
-static const char* LOG_FILE_PATH = "/storage/emulated/0/Download/mod_debug.txt";
-static const char* TAG = "InventoryTab";
+static const char* LOG_FILE = "/storage/emulated/0/Download/mod_debug.txt";
 
-void write_log(const char* level, const char* fmt, ...) {
-    va_list args1;
-    va_start(args1, fmt);
-    __android_log_vprint(ANDROID_LOG_INFO, TAG, fmt, args1);
-    va_end(args1);
-
-    FILE* f = fopen(LOG_FILE_PATH, "a");
-    if (f != nullptr) {
-        fprintf(f, "[%s] ", level);
-        va_list args2;
-        va_start(args2, fmt);
-        vfprintf(f, fmt, args2);
-        va_end(args2);
+void mlog(const char* fmt, ...) {
+    va_list a;
+    va_start(a, fmt);
+    __android_log_vprint(ANDROID_LOG_INFO, "InventoryTab", fmt, a);
+    va_end(a);
+    FILE* f = fopen(LOG_FILE, "a");
+    if (f) {
+        va_list b;
+        va_start(b, fmt);
+        vfprintf(f, fmt, b);
         fprintf(f, "\n");
+        va_end(b);
         fclose(f);
     }
 }
 
-#define LOGI(...) write_log("INFO", __VA_ARGS__)
-#define LOGE(...) write_log("ERROR", __VA_ARGS__)
+InventoryTabMod* InventoryTabMod::sInstance = nullptr;
 
-// ========== HOOKS ==========
-using ContainerOpenFn = void(*)(void* self);
-ContainerOpenFn originalContainerOpen = nullptr;
-
-void hookedContainerOpen(void* self) {
-    LOGI("¡ContainerScreenControllerOpen llamado! (Inventario abierto)");
-    if (originalContainerOpen) originalContainerOpen(self);
-}
-
-using ContainerDtorFn = void(*)(void* self);
-ContainerDtorFn originalContainerDtor = nullptr;
-
-void hookedContainerDtor(void* self) {
-    LOGI("ContainerScreenControllerDtor llamado (Inventario cerrado)");
-    if (originalContainerDtor) originalContainerDtor(self);
-}
-
-using SlotSelectedFn = void(*)(void* self);
-SlotSelectedFn originalSlotSelected = nullptr;
-
-void hookedSlotSelected(void* self) {
-    LOGI("OnContainerSlotSelected llamado");
-    if (originalSlotSelected) originalSlotSelected(self);
-}
-
-// ========== CALLBACK ESTÁTICO (sin capturar this) ==========
-static bool g_moduleEnabled = false;
-
-static void onModuleToggle(std::string_view /*moduleId*/, bool enabled) {
-    g_moduleEnabled = enabled;
-    if (enabled) {
-        LOGI("Módulo Custom Inventory Tab ACTIVADO");
-    } else {
-        LOGI("Módulo Custom Inventory Tab DESACTIVADO");
-    }
-}
-
-// ========== MOD ==========
 InventoryTabMod& InventoryTabMod::instance() {
     static InventoryTabMod mod;
     return mod;
 }
 
-void InventoryTabMod::registerModule() {
-    // Ojo: NO capturar this en el lambda
-    bool ok = pl::modmenu::ModuleBuilder("inventorytab.custom", "Custom Inventory Tab")
-        .modId("inventorytab")
-        .description("Tab personalizado en el inventario")
-        .defaultEnabled(false)
-        .onToggle(onModuleToggle)   // función estática, no lambda con this
-        .registerModule();
+void InventoryTabMod::addLooseDetour(void* initializer, void const* worldVersion) {
+    auto* self = sInstance;
+    if (!self || !self->mApi.addLooseCreativeItemsOriginal) return;
 
-    if (ok) {
-        LOGI("Módulo registrado correctamente en el Mod Menu");
-    } else {
-        LOGE("Falló al registrar el módulo en el Mod Menu");
-    }
+    // Vanilla primero
+    self->mApi.addLooseCreativeItemsOriginal(initializer, worldVersion);
+    // Después nuestra tab
+    self->mTab.onCreativeInitializer(initializer, worldVersion);
 }
 
-void InventoryTabMod::installHooks() {
-    auto openAddr = resolve(SignatureId::ContainerScreenControllerOpen);
-    if (openAddr) {
-        pl::memory::hook(
-            reinterpret_cast<void*>(openAddr),
-            reinterpret_cast<void*>(&hookedContainerOpen),
-            reinterpret_cast<void**>(&originalContainerOpen),
-            pl::memory::HookPriority::Normal
-        );
-        LOGI("Hook ContainerOpen instalado → 0x%lx", (unsigned long)openAddr);
-    } else {
-        LOGE("No se encontró signature de ContainerScreenControllerOpen");
-    }
-
-    auto dtorAddr = resolve(SignatureId::ContainerScreenControllerDtor);
-    if (dtorAddr) {
-        pl::memory::hook(
-            reinterpret_cast<void*>(dtorAddr),
-            reinterpret_cast<void*>(&hookedContainerDtor),
-            reinterpret_cast<void**>(&originalContainerDtor),
-            pl::memory::HookPriority::Normal
-        );
-        LOGI("Hook ContainerDtor instalado → 0x%lx", (unsigned long)dtorAddr);
-    } else {
-        LOGE("No se encontró signature de ContainerScreenControllerDtor");
-    }
-
-    auto slotAddr = resolve(SignatureId::ContainerScreenControllerOnContainerSlotSelected);
-    if (slotAddr) {
-        pl::memory::hook(
-            reinterpret_cast<void*>(slotAddr),
-            reinterpret_cast<void*>(&hookedSlotSelected),
-            reinterpret_cast<void**>(&originalSlotSelected),
-            pl::memory::HookPriority::Normal
-        );
-        LOGI("Hook OnContainerSlotSelected instalado → 0x%lx", (unsigned long)slotAddr);
-    } else {
-        LOGE("No se encontró signature de OnContainerSlotSelected");
-    }
-}
-
-void InventoryTabMod::uninstallHooks() {
-    LOGI("Desinstalando hooks...");
-}
-
-bool InventoryTabMod::load(pl::mod::ModContext& /*ctx*/) {
-    FILE* f = fopen(LOG_FILE_PATH, "w");
+bool InventoryTabMod::load(pl::mod::ModContext&) {
+    FILE* f = fopen(LOG_FILE, "w");
     if (f) {
-        fprintf(f, "=== InventoryTab Debug Log ===\n");
+        fprintf(f, "=== InventoryTab / Custom Creative Tab ===\n");
         fclose(f);
     }
-
-    LOGI("Mod cargado correctamente");
-    // NO registrar el módulo aquí
+    mlog("[INFO] load ok");
     return true;
 }
 
-bool InventoryTabMod::enable(pl::mod::ModContext& /*ctx*/) {
-    LOGI("enable() llamado");
+bool InventoryTabMod::enable(pl::mod::ModContext&) {
+    mlog("[INFO] enable()");
+    sInstance = this;
 
-    // 1. Registrar el módulo del menú AQUÍ
-    registerModule();
-
-    // 2. Resolver signatures e instalar hooks
-    LOGI("Intentando resolver signatures...");
-    if (!resolveAll()) {
-        LOGE("Falló al resolver las signatures");
-        // Igual devolvemos true para que el mod no se deshabilite del todo
-        return true;
+    if (!mApi.resolve()) {
+        mlog("[ERROR] resolve falló");
+        sInstance = nullptr;
+        return false;
     }
 
-    LOGI("Signatures resueltas. Instalando hooks...");
-    installHooks();
-    LOGI("Mod habilitado con éxito");
+    void* original = nullptr;
+    int rc = pl::memory::hook(
+        mApi.addLooseCreativeItemsTarget,
+        reinterpret_cast<void*>(&InventoryTabMod::addLooseDetour),
+        &original,
+        pl::memory::HookPriority::Normal
+    );
+    if (rc != 0 || !original) {
+        mlog("[ERROR] hook addLooseCreativeItems falló code=%d", rc);
+        mApi.clear();
+        sInstance = nullptr;
+        return false;
+    }
+
+    mApi.addLooseCreativeItemsOriginal =
+        reinterpret_cast<EngineApi::AddLooseCreativeItemsFn>(original);
+    mHookInstalled = true;
+    mlog("[INFO] hook instalado; entra a un mundo en creativo para ver la tab Custom");
     return true;
 }
 
-bool InventoryTabMod::disable(pl::mod::ModContext& /*ctx*/) {
-    uninstallHooks();
-    clear();
-    LOGI("Mod deshabilitado");
+bool InventoryTabMod::disable(pl::mod::ModContext&) {
+    if (mHookInstalled && mApi.addLooseCreativeItemsTarget) {
+        pl::memory::unhook(
+            mApi.addLooseCreativeItemsTarget,
+            reinterpret_cast<void*>(&InventoryTabMod::addLooseDetour)
+        );
+        mHookInstalled = false;
+    }
+    mTab.reset();
+    mApi.clear();
+    sInstance = nullptr;
+    mlog("[INFO] disable ok");
     return true;
 }
 
-bool InventoryTabMod::unload(pl::mod::ModContext& /*ctx*/) {
-    LOGI("Mod descargado");
+bool InventoryTabMod::unload(pl::mod::ModContext& ctx) {
+    disable(ctx);
+    mlog("[INFO] unload ok");
     return true;
 }
 
-}
+} // namespace inventorytab
