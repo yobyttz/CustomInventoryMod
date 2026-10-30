@@ -24,11 +24,11 @@ FetchContent_MakeAvailable(preloader_android)
 add_library(${MOD_LIBRARY_NAME} SHARED
     src/main.cpp
     src/InventoryTab.cpp
-    src/Signatures.cpp
+    src/EngineApi.cpp
+    src/CreativeTab.cpp
 )
 
 target_include_directories(${MOD_LIBRARY_NAME} PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
