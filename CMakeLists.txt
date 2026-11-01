@@ -13,8 +13,11 @@ include(FetchContent)
 FetchContent_Declare(
     preloader_android
     GIT_REPOSITORY https://github.com/LiteLDev/preloader-android.git
-    GIT_TAG        v0.2.2
+    GIT_TAG        0.2.2
 )
+
+set(PRELOADER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(preloader_android)
 
 set(PRELOADER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(preloader_android)
