@@ -1,10 +1,7 @@
 {
-  "type": "preload-native",
-  "name": "Custom Inventory Tab",
-  "author": "TuNombre",
-  "version": "0.1.0",
+  "name": "inventorytab",
   "entry": "libinventorytab.so",
-  "minecraft_versions": [],
-  "overwrite_files": [],
-  "overwrite_folders": []
+  "version": "1.0.0",
+  "type": "preload-native",
+  "description": "Custom creative tab"
 }
