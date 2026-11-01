@@ -14,6 +14,7 @@ void mlog(const char* fmt, ...) {
     va_start(a, fmt);
     __android_log_vprint(ANDROID_LOG_INFO, "InventoryTab", fmt, a);
     va_end(a);
+
     FILE* f = fopen(LOG_FILE, "a");
     if (f) {
         va_list b;
@@ -32,13 +33,12 @@ InventoryTabMod& InventoryTabMod::instance() {
     return mod;
 }
 
+//hola
 void InventoryTabMod::addLooseDetour(void* initializer, void const* worldVersion) {
     auto* self = sInstance;
     if (!self || !self->mApi.addLooseCreativeItemsOriginal) return;
 
-    // Vanilla primero
     self->mApi.addLooseCreativeItemsOriginal(initializer, worldVersion);
-    // Después nuestra tab
     self->mTab.onCreativeInitializer(initializer, worldVersion);
 }
 
@@ -69,6 +69,7 @@ bool InventoryTabMod::enable(pl::mod::ModContext&) {
         &original,
         pl::memory::HookPriority::Normal
     );
+
     if (rc != 0 || !original) {
         mlog("[ERROR] hook addLooseCreativeItems falló code=%d", rc);
         mApi.clear();
@@ -79,7 +80,7 @@ bool InventoryTabMod::enable(pl::mod::ModContext&) {
     mApi.addLooseCreativeItemsOriginal =
         reinterpret_cast<EngineApi::AddLooseCreativeItemsFn>(original);
     mHookInstalled = true;
-    mlog("[INFO] hook instalado; entra a un mundo en creativo para ver la tab Custom");
+    mlog("[INFO] hook instalado; entra a un mundo en creativo");
     return true;
 }
 
