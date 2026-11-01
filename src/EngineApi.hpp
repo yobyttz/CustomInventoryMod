@@ -10,11 +10,11 @@ struct HashedStringExact {
     std::uint64_t hash{};
     std::string text;
     void* lastMatch{nullptr};
+
     explicit HashedStringExact(std::string value);
 };
 
 struct EngineApi {
-    // firmas alineadas al motor (Android arm64)
     using GetCreativeCategoryFn = void* (*)(void* registry, std::uint8_t category);
     using AddChildGroupFn = void* (*)(void* category, HashedStringExact& name, void* iconItemInstance);
     using NewItemEntryFn = void* (*)(void* registry, std::uint32_t netId, void* itemInstance);
