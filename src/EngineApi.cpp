@@ -1,14 +1,15 @@
 #include "EngineApi.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdio>
+#include <cstdarg>
 #include <limits>
 #include <link.h>
 #include <string_view>
 
 #include <android/log.h>
-#include <cstdio>
-#include <cstdarg>
 
 namespace inventorytab {
 namespace {
@@ -20,6 +21,7 @@ void elog(const char* fmt, ...) {
     va_start(a, fmt);
     __android_log_vprint(ANDROID_LOG_INFO, "InventoryTab", fmt, a);
     va_end(a);
+
     FILE* f = fopen(LOG_FILE, "a");
     if (f) {
         va_list b;
@@ -77,7 +79,8 @@ int hexNibble(char ch) {
 }
 
 std::size_t sigLen(std::string_view sig) {
-    std::size_t n = 0, pos = 0;
+    std::size_t n = 0;
+    std::size_t pos = 0;
     while (pos < sig.size()) {
         while (pos < sig.size() && sig[pos] == ' ') ++pos;
         if (pos >= sig.size()) break;
@@ -94,13 +97,17 @@ bool matchRva(const ModuleView& m, std::uintptr_t rva, std::string_view sig) {
     if (!len) return false;
     auto addr = m.base + rva;
     if (addr < m.execStart || addr + len > m.execEnd) return false;
+
     auto* bytes = reinterpret_cast<const std::uint8_t*>(addr);
-    std::size_t bi = 0, pos = 0;
+    std::size_t bi = 0;
+    std::size_t pos = 0;
     while (pos < sig.size()) {
         while (pos < sig.size() && sig[pos] == ' ') ++pos;
         if (pos >= sig.size()) break;
-        char hi = sig[pos++], lo = sig[pos++];
-        std::uint8_t value = 0, mask = 0;
+        char hi = sig[pos++];
+        char lo = sig[pos++];
+        std::uint8_t value = 0;
+        std::uint8_t mask = 0;
         if (hi != '?') {
             int n = hexNibble(hi);
             if (n < 0) return false;
@@ -125,7 +132,7 @@ struct Target {
     std::uintptr_t rva;
 };
 
-// Targets 1.26.52.3 (del set que encontraste)
+// Targets Minecraft 1.26.52.3
 constexpr Target kTargets[] = {
     {"addLooseCreativeItems",
      "FF 03 05 D1 FD 7B 0F A9 FC 67 10 A9 F8 5F 11 A9 F6 57 12 A9 F4 4F 13 A9 FD C3 03 91 55 D0 3B D5 B4 63 01 D1 F3 03 00 AA A8 16 40 F9 A8 83 1F F8 A0 83 1A F8 80 22 00 91 ?? ?? ?? ?? E8 23 00 91",
@@ -158,7 +165,9 @@ constexpr Target kTargets[] = {
 
 std::uint64_t fnv1a(std::string_view v) {
     std::uint64_t h = 0xcbf29ce484222325ULL;
-    for (unsigned char c : v) h = static_cast<std::uint64_t>(c) ^ (0x100000001b3ULL * h);
+    for (unsigned char c : v) {
+        h = static_cast<std::uint64_t>(c) ^ (0x100000001b3ULL * h);
+    }
     return h;
 }
 
@@ -169,6 +178,7 @@ HashedStringExact::HashedStringExact(std::string value)
 
 bool EngineApi::resolve() {
     clear();
+
     ModuleView mod{};
     if (!findModule(mod)) {
         elog("[ERROR] libminecraftpe.so no encontrada");
