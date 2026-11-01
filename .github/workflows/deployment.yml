@@ -39,3 +39,4 @@ jobs:
       with:
         name: inventorytab
         path: build/libinventorytab.so
+        
