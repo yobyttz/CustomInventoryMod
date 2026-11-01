@@ -3,12 +3,10 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
-#include <limits>
-#include <string_view>
-
-#include <android/log.h>
 #include <cstdio>
 #include <cstdarg>
+
+#include <android/log.h>
 
 namespace inventorytab {
 namespace {
@@ -20,6 +18,7 @@ void clog(const char* fmt, ...) {
     va_start(a, fmt);
     __android_log_vprint(ANDROID_LOG_INFO, "InventoryTab", fmt, a);
     va_end(a);
+
     FILE* f = fopen(LOG_FILE, "a");
     if (f) {
         va_list b;
@@ -32,58 +31,31 @@ void clog(const char* fmt, ...) {
 }
 
 constexpr std::size_t kItemInstanceSize = 0x80;
-constexpr std::size_t kCreativeItemEntrySize = 0xB0;
-constexpr std::size_t kCreativeRegistryItemsBeginOffset = 0x18;
-constexpr std::size_t kCreativeRegistryItemsEndOffset = 0x20;
-constexpr std::size_t kCreativeEntryNetIdOffset = 0x24;
 constexpr std::size_t kCreativeInitializerRegistryOffset = 0x20;
 constexpr std::uint8_t kCreativeCategoryItems = 4;
-
-// Ítems de prueba en tu tab
-constexpr std::string_view kTabItems[] = {
-    "minecraft:diamond_sword",
-    "minecraft:netherite_sword",
-    "minecraft:trident",
-};
 
 struct alignas(16) ItemStorage {
     std::array<std::byte, kItemInstanceSize> bytes{};
 };
 
-template <class T>
-T readAt(void const* base, std::size_t off) {
-    T v{};
-    if (!base) return v;
-    std::memcpy(&v, static_cast<std::byte const*>(base) + off, sizeof(T));
-    return v;
-}
-
 void* readPtr(void const* base, std::size_t off) {
-    return readAt<void*>(base, off);
-}
-
-std::uint32_t nextNetId(void* registry) {
-    auto* begin = static_cast<std::byte*>(readPtr(registry, kCreativeRegistryItemsBeginOffset));
-    auto* end = static_cast<std::byte*>(readPtr(registry, kCreativeRegistryItemsEndOffset));
-    if (!begin || !end || end < begin) return 1;
-    auto bytes = static_cast<std::size_t>(end - begin);
-    if (bytes % kCreativeItemEntrySize != 0) return 1;
-    std::uint32_t maxId = 0;
-    for (auto* e = begin; e < end; e += kCreativeItemEntrySize) {
-        maxId = std::max(maxId, readAt<std::uint32_t>(e, kCreativeEntryNetIdOffset));
-    }
-    return maxId + 1;
+    if (!base) return nullptr;
+    void* p = nullptr;
+    std::memcpy(&p, static_cast<std::byte const*>(base) + off, sizeof(p));
+    return p;
 }
 
 } // namespace
 
 void CreativeTab::onCreativeInitializer(void* initializer, void const* worldVersion) {
     if (!initializer || !worldVersion) return;
+
     auto* registry = readPtr(initializer, kCreativeInitializerRegistryOffset);
     if (!registry) {
         clog("[ERROR] CreativeItemRegistry null en initializer+0x20");
         return;
     }
+
     std::lock_guard lock(mMutex);
     if (mCreativeRegistry != registry) {
         mCreativeRegistry = registry;
@@ -102,75 +74,55 @@ void CreativeTab::reset() {
 void CreativeTab::tryInject() {
     if (mInjecting || !mCreativeRegistry) return;
     if (mInjectedRegistry == mCreativeRegistry) return;
-    if (!mApi.getCreativeCategory || !mApi.addChildGroup || !mApi.newItemEntry ||
-        !mApi.addCreativeItemEntry || !mApi.itemInstanceNameCtor || !mApi.itemInstanceDtor ||
-        !mApi.itemGetItem || !mApi.updateNetIdMap) {
-        clog("[ERROR] API incompleta, no inyecto");
+
+    if (!mApi.getCreativeCategory || !mApi.addChildGroup ||
+        !mApi.itemInstanceNameCtor || !mApi.itemInstanceDtor || !mApi.itemGetItem) {
+        clog("[ERROR] API incompleta");
         return;
     }
 
     mInjecting = true;
+    clog("[INFO] tryInject inicio registry=%p", mCreativeRegistry);
 
     auto* category = mApi.getCreativeCategory(mCreativeRegistry, kCreativeCategoryItems);
+    clog("[INFO] category=%p", category);
     if (!category) {
-        clog("[ERROR] Categoría Items (4) no disponible");
+        clog("[ERROR] Categoría Items (4) null");
         mInjecting = false;
         return;
     }
 
-    // Icono del grupo: piedra
     ItemStorage icon{};
+    clog("[INFO] construyendo icono stone...");
     mApi.itemInstanceNameCtor(icon.bytes.data(), "minecraft:stone", 15, 1, 0, nullptr);
-    bool iconOk = mApi.itemGetItem(icon.bytes.data()) != nullptr;
-    if (!iconOk) {
-        clog("[ERROR] No se pudo crear icono stone");
+    void* iconItem = mApi.itemGetItem(icon.bytes.data());
+    clog("[INFO] icon Item*=%p", iconItem);
+
+    if (!iconItem) {
+        clog("[ERROR] icon stone falló");
         mApi.itemInstanceDtor(icon.bytes.data());
         mInjecting = false;
         return;
     }
 
     HashedStringExact name{std::string("Custom")};
+    clog("[INFO] addChildGroup...");
     void* group = mApi.addChildGroup(category, name, icon.bytes.data());
+    clog("[INFO] group=%p", group);
+
     mApi.itemInstanceDtor(icon.bytes.data());
+    clog("[INFO] icon destruido");
 
     if (!group) {
-        clog("[ERROR] addChildGroup devolvió null");
+        clog("[ERROR] group null");
         mInjecting = false;
         return;
     }
-    clog("[INFO] Tab 'Custom' creada");
 
-    std::uint32_t netId = nextNetId(mCreativeRegistry);
-    std::size_t added = 0;
-
-    for (auto id : kTabItems) {
-        ItemStorage item{};
-        mApi.itemInstanceNameCtor(item.bytes.data(), id.data(), id.size(), 1, 0, nullptr);
-        if (!mApi.itemGetItem(item.bytes.data())) {
-            clog("[ERROR] No se pudo construir %.*s", (int)id.size(), id.data());
-            mApi.itemInstanceDtor(item.bytes.data());
-            continue;
-        }
-        auto* entry = mApi.newItemEntry(mCreativeRegistry, netId++, item.bytes.data());
-        if (!entry) {
-            clog("[ERROR] newItemEntry falló para %.*s", (int)id.size(), id.data());
-            mApi.itemInstanceDtor(item.bytes.data());
-            continue;
-        }
-        mApi.addCreativeItemEntry(group, entry);
-        mApi.itemInstanceDtor(item.bytes.data());
-        ++added;
-        clog("[INFO] Agregado: %.*s", (int)id.size(), id.data());
-    }
-
-    if (added > 0) {
-        mApi.updateNetIdMap(mCreativeRegistry);
-        clog("[INFO] updateNetIdMap ok, items=%zu", added);
-    }
-
+    // SIN ítems todavía
     mInjectedRegistry = mCreativeRegistry;
     mInjecting = false;
-    clog("[INFO] Inyección Custom terminada");
+    clog("[INFO] Tab vacía OK — sin ítems, sin updateNetIdMap");
 }
 
 } // namespace inventorytab
